@@ -5,7 +5,7 @@
   <path fill="#cf222e" d="M23 42q13-13 25-2 13-11 25 2-13 18-25 18-13 0-25-18z"/>
   <path d="M23 42q25 7 50 0" fill="none" stroke="#7d0a1b" stroke-width="3" stroke-linecap="round"/>
   <!-- guard: slash struck across the bubble -->
-  <path d="M4 50 L94 44" stroke="#0d1117" stroke-width="8" stroke-linecap="round"/>
+  <path d="M6 80 L92 20" stroke="#0d1117" stroke-width="8" stroke-linecap="round"/>
   <!-- wordmark -->
   <text x="104" y="58" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="34" font-weight="700" fill="#e6edf3">loose<tspan fill="#f85149">lips</tspan>-guard</text>
 </svg>
