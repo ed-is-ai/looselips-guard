@@ -54,15 +54,21 @@ plugin; [other hosts](#hosts) are designed and not yet built.
 
 That wires the `PreToolUse` hook for you. Needs `python3` on `PATH`.
 
-<details><summary>Or wire the hook by hand</summary>
+<details><summary>Or wire the hook by hand (any host)</summary>
 
-Get `looselips-guard` onto your machine, either:
+Get `looselips-guard` onto your machine:
 
 ```bash
 npm install -g looselips-guard                       # needs python3 on PATH
 ```
 
-or clone it:
+Then `looselips-guard init <host>` merges the hook into that host's config file
+for you — `claude`, `codex`, `copilot`, `cursor` (JSON, merged in place) or
+`hermes` (prints the YAML to paste). Add `--global` for the home-directory
+config instead of the project one. The rest of this block is what it writes, if
+you would rather do it yourself.
+
+Or clone instead of npm:
 
 ```bash
 git clone https://github.com/ed-is-ai/looselips-guard.git ~/looselips-guard
@@ -214,36 +220,26 @@ needed.
 
 **2. Tell it what your data looks like.** Step 1 guards credentials and
 oversized files with no config. To also block *your own data* — the strings
-generic PII rules can't recognise — copy `.looselips-guard.example.json` to
-`.looselips-guard.json` in the project you want guarded:
+generic PII rules can't recognise — run the setup CLI in the project you want
+guarded:
 
-```jsonc
-{
-  "sources": [
-    { "type": "sqlite", "path": "data/ledger.db",
-      "query": "SELECT DISTINCT symbol FROM trades" }
-  ],
-  "allow": ["ALL", "ON", "GO", "CAT"],
-  "values": ["Acct-99001122"]
-}
+```bash
+looselips-guard init            # scaffolds .looselips-guard.json, detects and wires your host
+looselips-guard add ZQXF VNTR Acct-99001122   # add strings to the blocklist
+looselips-guard check           # self-test the install
 ```
 
-Now the values in your own ledger cannot leave the machine by accident.
-`.looselips-guard.json` is never committed.
+`init` also takes an explicit target — `looselips-guard init --global cursor` —
+when detection can't see your host or you want the global config file. `add`
+appends to `.looselips-guard.list`; for anything that changes often, point a
+`source` at it instead (see [Config](#config)) and it is re-read on every scan.
+`.looselips-guard.json` and `.looselips-guard.list` are never committed;
+[`.looselips-blocklist-example.json`](.looselips-blocklist-example.json) is the
+template `init` copies from.
 
 **When the data changes**, `sources` keep up on their own — the query, CSV or
 env file is re-read on every scan, so a ticker you bought this morning is
-already guarded. Only `values` (literals typed into the config) and `allow`
-need a hand edit.
-
-**Check it works:**
-
-```bash
-echo '{"tool_input":{"command":"gh issue create --title t --body \"ZQXF 300 shares\""},"cwd":"'$PWD'"}' \
-  | python3 ~/looselips-guard/looselips_guard.py; echo "exit=$?"
-```
-
-Exit 2 with a message naming what matched means it's guarding you.
+already guarded. Only `values` and the `add` list are hand-maintained.
 
 ---
 
@@ -350,8 +346,8 @@ fire, and a guard that might not run is worse than no guard.
 
 All of this lives in **`.looselips-guard.json`** at the root of the project you are
 guarding — the working directory the command runs in. It is never committed.
-`.looselips-guard.example.json` is only a template to copy from; `.looselips-guard.list`
-(below) is one optional data source, not the config itself.
+`.looselips-blocklist-example.json` is only a template to copy from;
+`.looselips-guard.list` (below) is one optional data source, not the config itself.
 
 The denylist is **generated from your own data**, not from generic PII regexes.
 Generic rules fail here, concretely: in the incident that motivated this tool

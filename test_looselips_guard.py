@@ -117,6 +117,24 @@ def main():
         assert subprocess.run([sys.executable, script], input=cursor,
                               capture_output=True, text=True).returncode == 2
 
+        # setup CLI: init merges without clobbering, add dedupes, both idempotent
+        with tempfile.TemporaryDirectory() as proj:
+            cur = os.path.join(proj, ".cursor", "hooks.json")
+            os.makedirs(os.path.dirname(cur))
+            json.dump({"version": 1, "hooks": {"afterFileEdit": [{"command": "fmt"}]}},
+                      open(cur, "w"))
+            run_cli = lambda *a: subprocess.run([sys.executable, script, *a], cwd=proj,
+                                                capture_output=True, text=True)
+            run_cli("init", "cursor")
+            run_cli("init", "cursor")  # idempotent
+            got = json.load(open(cur))
+            assert got["hooks"]["afterFileEdit"] == [{"command": "fmt"}], got
+            assert len(got["hooks"]["beforeShellExecution"]) == 1, got
+            assert os.path.exists(os.path.join(proj, ".looselips-guard.json"))
+            run_cli("add", "ZQXF", "ZQXF", "VNTR")
+            lst = open(os.path.join(proj, ".looselips-guard.list")).read().split()
+            assert lst == ["ZQXF", "VNTR"], lst
+
     print("ok")
 
 

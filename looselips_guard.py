@@ -232,16 +232,164 @@ def check(command, cwd, config):
     return findings
 
 
+# --- setup CLI ----------------------------------------------------------
+# Inlined so `looselips-guard init` works from a bare `npm i -g` with no
+# repo checkout. Keep in step with .looselips-blocklist-example.json and hooks/.
+
+CONFIG_TEMPLATE = {
+    "values": ["Acct-99001122"],
+    "allow": ["ALL", "ON", "GO", "CAT"],
+    "sources": [{"type": "txt", "path": ".looselips-guard.list"}],
+    "max_added_file_bytes": DEFAULT_MAX_BYTES,
+}
+
+_CLAUDE_ENTRY = {"matcher": "Bash",
+                 "hooks": [{"type": "command", "command": "looselips-guard"}]}
+HOSTS = {
+    "claude":  {"file": ".claude/settings.json", "home": ".claude/settings.json",
+                "event": "PreToolUse", "entry": _CLAUDE_ENTRY},
+    "codex":   {"file": ".codex/hooks.json", "home": ".codex/hooks.json",
+                "event": "PreToolUse", "entry": _CLAUDE_ENTRY},
+    "copilot": {"file": ".github/hooks/looselips-guard.json",
+                "home": ".copilot/hooks/looselips-guard.json", "version": 1,
+                "event": "PreToolUse",
+                "entry": {"type": "command", "bash": "looselips-guard",
+                          "matcher": "bash|shell"}},
+    "cursor":  {"file": ".cursor/hooks.json", "home": ".cursor/hooks.json",
+                "version": 1, "event": "beforeShellExecution",
+                "entry": {"command": "looselips-guard", "failClosed": True}},
+    "hermes":  {"home": ".hermes/config.yaml", "yaml":
+                'hooks:\n  pre_tool_call:\n    - matcher: "terminal"\n'
+                '      command: "looselips-guard"\n      timeout: 5\n'
+                '      fail_closed: true\n'},
+}
+
+
+def _detected_hosts():
+    home, here = os.path.expanduser("~"), os.getcwd()
+    checks = {
+        "claude":  [f"{home}/.claude", f"{home}/.claude.json", f"{here}/.claude"],
+        "codex":   [f"{home}/.codex"],
+        "cursor":  [f"{home}/.cursor", f"{here}/.cursor"],
+        "hermes":  [f"{home}/.hermes", f"{here}/.hermes"],
+        "copilot": [f"{home}/.copilot", f"{here}/.github"],
+    }
+    return [h for h, paths in checks.items() if any(os.path.exists(p) for p in paths)]
+
+
+def _wire_json(path, host):
+    data = {}
+    if os.path.exists(path):
+        with open(path) as f:
+            data = json.load(f) or {}
+    if "version" in host:
+        data.setdefault("version", host["version"])
+    arr = data.setdefault("hooks", {}).setdefault(host["event"], [])
+    if "looselips" in json.dumps(arr):          # hyphen or underscore, any path
+        return "already wired"
+    arr.append(host["entry"])
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    return "wired"
+
+
+def cmd_init(args):
+    use_home = "--global" in args
+    names = [a for a in args if not a.startswith("-")]
+
+    cfg = os.path.join(os.getcwd(), CONFIG_NAME)
+    if os.path.exists(cfg):
+        print(f"{CONFIG_NAME} already exists, left as is")
+    else:
+        with open(cfg, "w") as f:
+            json.dump(CONFIG_TEMPLATE, f, indent=2)
+            f.write("\n")
+        print(f"wrote {CONFIG_NAME} - list your own data in it (see README > Config)")
+
+    targets = names or _detected_hosts()
+    if not targets:
+        print("\nno host detected. Pass one explicitly:\n"
+              "  looselips-guard init [--global] " + "|".join(HOSTS))
+        return 0
+    for name in targets:
+        host = HOSTS.get(name)
+        if not host:
+            print(f"{name}: unknown host, skipped ({'|'.join(HOSTS)})")
+            continue
+        if "yaml" in host:
+            print(f"\n{name}: merge into ~/{host['home']} (YAML, do it by hand) -\n\n"
+                  + "".join("    " + l + "\n" for l in host["yaml"].splitlines()))
+            continue
+        rel = host["home"] if use_home else host["file"]
+        path = os.path.join(os.path.expanduser("~") if use_home else os.getcwd(), rel)
+        print(f"{name}: {_wire_json(path, host)} -> {path}")
+
+    print("\nverify:  looselips-guard check")
+    return 0
+
+
+def cmd_add(args):
+    values = [a.strip() for a in args if not a.startswith("-") and a.strip()]
+    if not values:
+        print("usage: looselips-guard add VALUE [VALUE ...]   "
+              "(appends to .looselips-guard.list)", file=sys.stderr)
+        return 1
+    here = os.getcwd()
+    listfile = os.path.join(here, ".looselips-guard.list")
+    existing = set()
+    if os.path.exists(listfile):
+        with open(listfile) as f:
+            existing = {l.strip() for l in f
+                        if l.strip() and not l.lstrip().startswith("#")}
+    added = [v for v in dict.fromkeys(values) if v not in existing]
+    with open(listfile, "a") as f:
+        for v in added:
+            f.write(v + "\n")
+    print(f"added to .looselips-guard.list: {', '.join(added) or '(nothing new)'}")
+    for v in added:
+        if re.fullmatch(r"[a-z]+", v) or len(v) < 3:
+            print(f"  note: {v!r} is word-like; if it flags legit text, "
+                  f'add it to "allow" in {CONFIG_NAME}')
+    if not os.path.exists(os.path.join(here, CONFIG_NAME)):
+        print(f"warning: no {CONFIG_NAME} in this directory yet - run "
+              "`looselips-guard init` or the list is never read")
+    return 0
+
+
+def cmd_check(args):
+    cwd = os.getcwd()
+    probe = 'gh issue create --title t --body "deploy fails with AKIAIOSFODNN7EXAMPLE"'
+    findings = check(probe, cwd, load_config(cwd))
+    if any("secret" in f for f in findings):
+        print("ok - guard active, credential rules load")
+        return 0
+    print("PROBLEM: test credential AKIAIOSFODNN7EXAMPLE was not caught.\n"
+          "gitleaks_rules.py must sit next to looselips_guard.py.", file=sys.stderr)
+    return 1
+
+
 def main():
     if len(sys.argv) > 1:
-        sub = sys.argv[1]
-        if sub in ("init", "redact"):
-            print(f"looselips-guard {sub}: not implemented yet — see the design spec",
+        sub, rest = sys.argv[1], sys.argv[2:]
+        if sub == "init":
+            return cmd_init(rest)
+        if sub == "add":
+            return cmd_add(rest)
+        if sub == "check":
+            return cmd_check(rest)
+        if sub == "redact":
+            print("looselips-guard redact: not implemented yet - see the design spec",
                   file=sys.stderr)
             return 1
         print(f"looselips-guard: unknown command {sub!r}\n"
-              "usage: looselips-guard          read a hook event on stdin\n"
-              "       looselips-guard init     wire up a host and build a denylist",
+              "usage:\n"
+              "  looselips-guard                        read a hook event on stdin\n"
+              "  looselips-guard init [--global] [host] scaffold config, wire the hook\n"
+              "                                        host: " + "|".join(HOSTS) + "\n"
+              "  looselips-guard add VALUE [VALUE ...]  add strings to the blocklist\n"
+              "  looselips-guard check                  self-test the install",
               file=sys.stderr)
         return 1
     event = json.load(sys.stdin)
