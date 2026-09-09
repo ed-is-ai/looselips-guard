@@ -33,8 +33,9 @@ The model was supposed to see the portfolio — that was the task.
   agent-initiated calls.
 - **Reimplementing secret detection.** Credentials have distinctive shapes and
   high entropy; generic detection genuinely works there. Delegate to `gitleaks`.
-- **Redaction.** Hooks can block, not rewrite. Silently altering an agent's
-  payload is worse than refusing it.
+- **Rewriting outbound payloads.** Silently altering an issue body the agent
+  wrote is worse than refusing it. Outbound stays block-only. (Redaction *is*
+  in scope inbound — see §6, where the trade-off runs the other way.)
 
 ## 3. Architecture
 
@@ -149,7 +150,82 @@ Bash call.
 configs *are* committed: they hold only wiring, and committing them means the
 guard covers the whole team.
 
-## 6. `looselips init`
+## 6. Inbound guard — secrets reaching the model
+
+Optional, off by default. The outbound guard is the product; this is the second
+direction, enabled per project.
+
+### The two directions need different rule sets
+
+In the motivating incident the model was **supposed** to see the portfolio —
+that was the task. Applying the provider denylist inbound would block the agent
+from doing its job on every call.
+
+| Direction | Rules | Default |
+|---|---|---|
+| Outbound (`gh`, git) | Provider denylist: tickers, balances, account ids | On |
+| Inbound (to model) | Secrets only: credential shapes, high entropy | Opt-in |
+
+Pseudonymising denylist values inbound is available but **opt-in**, because the
+agent then reasons and writes code against values that do not exist.
+
+### Mechanism, and its hard limit
+
+Two facts, both verified against the current docs, and both contradicting the
+handover's §8 assumption that hooks cannot rewrite:
+
+- `PreToolUse` **can** rewrite tool input — Claude Code's
+  `hookSpecificOutput.updatedInput`, Copilot's `modifiedArgs`.
+- **Nothing can rewrite tool output.** `PostToolUse` has no `updatedOutput`;
+  the docs' own suggested workaround is to modify the input instead.
+
+So anonymisation is possible only where the read is a *command we can rewrite*:
+
+```
+cat .env      →     cat .env | looselips redact
+```
+
+| Path | Anonymisation | Behaviour |
+|---|---|---|
+| Shell reads (`cat`, `grep`, `git diff`) | Yes, via `updatedInput` pipe | Redact secrets |
+| Native read tool (`Read`, `view`) | Impossible — output is untouchable | **Warn and allow** |
+| Hosts without input rewriting | Impossible | Warn and allow |
+
+**Native reads warn and allow, by decision.** The alternatives were considered
+and rejected: blocking is safer but was judged too interrupting; redirecting
+`updatedInput.file_path` to a redacted temp copy works, but the agent then
+believes it read the temp path and may edit the copy while reporting success on
+the real file. Warn-and-allow is a documented, deliberate hole — the most common
+way an agent ingests a `.env` is the native read tool, so inbound protection is
+best-effort by construction.
+
+### Dependency policy
+
+Secret redaction is regex-shaped and needs nothing new; the core stays
+stdlib-only. Pseudonymisation requires Presidio (analyzer + anonymizer,
+reversible with a fixed faker seed for stable pseudonyms), which pulls spaCy and
+its models. It ships as an optional extra, imported only when enabled, so an
+outbound-only install remains dependency-free.
+
+### Config
+
+```jsonc
+"inbound": {
+  "enabled": false,
+  "secrets": "redact",      // redact | off
+  "pseudonymise": false,    // requires the optional Presidio extra
+  "native_read": "warn"     // warn | block | allow
+}
+```
+
+### Positioning
+
+Three tools already guard inbound (claude-code-privacy-guard,
+claude-code-redaction-hooks, sensitive-canary). looselips does not claim a
+better inbound scanner. What it adds is one install and one config covering both
+directions, with the outbound half that nothing else covers.
+
+## 7. `looselips init`
 
 One command covers both jobs:
 
@@ -161,7 +237,7 @@ One command covers both jobs:
 Rationale: a fresh install with no config blocks nothing and looks broken. The
 denylist is the product, so generating a good first one is the adoption story.
 
-## 7. Matcher
+## 8. Matcher
 
 Intercepted command shapes, taken from the real incident:
 
@@ -189,7 +265,7 @@ Rules:
   each against the size limit and scan its content.
 - `git commit -m` — scan the message.
 
-## 8. Override
+## 9. Override
 
 Blocking hard gets a tool bypassed, and then it protects nothing. A legitimate
 bug report about a currency-resolution defect genuinely needs to name the ticker
@@ -200,7 +276,7 @@ escape: re-run prefixed with `LOOSELIPS_OK=1`. Every leak in the incident was
 accidental. Making the deliberate case cheap and the accidental case impossible
 is the whole design goal.
 
-## 9. Testing
+## 10. Testing
 
 - The synthetic corpus is the correctness bar: a ticker-like token beside a
   currency amount, a balance line, a holdings table, an oversized SQLite backup,
@@ -215,15 +291,18 @@ Only synthetic fixtures with the same shapes are published. The originals live
 in a session scratchpad under `/private/tmp` and need copying somewhere durable
 and private.
 
-## 10. Spikes required before build completes
+## 11. Spikes required before build completes
 
 1. The field inside Copilot's `toolArgs` holding the shell command.
 2. The field in Cursor's `beforeShellExecution` payload holding the command.
 3. Whether dsh's hook bridge fires on a pre-tool event and honours exit 2.
+4. Which hosts support input rewriting for the inbound redaction pipe. Confirmed:
+   Claude Code (`updatedInput`), Copilot (`modifiedArgs`). Unknown: Codex,
+   Cursor, and the four in-process plugin hosts.
 
 None are guessable; each is one logged hook invocation.
 
-## 11. Deferred
+## 12. Deferred
 
 Extra egress surfaces — `curl`/`wget` POSTs, `git push`, MCP calls — are
 deferred. Note that Cursor exposes `beforeMCPExecution` separately, which hands
