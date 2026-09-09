@@ -199,13 +199,29 @@ the real file. Warn-and-allow is a documented, deliberate hole — the most comm
 way an agent ingests a `.env` is the native read tool, so inbound protection is
 best-effort by construction.
 
-### Dependency policy
+### Dependency policy — no NLP, by argument
 
-Secret redaction is regex-shaped and needs nothing new; the core stays
-stdlib-only. Pseudonymisation requires Presidio (analyzer + anonymizer,
-reversible with a fixed faker seed for stable pseudonyms), which pulls spaCy and
-its models. It ships as an optional extra, imported only when enabled, so an
-outbound-only install remains dependency-free.
+Secret redaction is regex-shaped and needs nothing new.
+
+Pseudonymisation also needs nothing new, and this follows directly from §5.
+Presidio was evaluated and **rejected**: it requires Python 3.10+, spaCy, and a
+separate `python -m spacy download en_core_web_lg` of several hundred MB. Its
+analyzer solves *detection of PII in free text* — precisely the approach §5
+rejects as unworkable here. Its anonymizer, the half we'd actually want, is a
+dictionary substitution over values we already hold.
+
+Loading a spaCy model inside a short-lived hook process takes seconds. Given
+every command-hook host is fail-open on timeout, that would not merely be slow,
+it would silently disable the guard on every call. An NLP dependency is
+therefore incompatible with the hook contract, not just heavier than we'd like.
+
+So pseudonymisation is implemented in the core: each denylist value maps to a
+stable fake derived by hashing it, so the same input always yields the same
+pseudonym and the agent can still reason over consistent tokens. The core stays
+stdlib-only in both directions.
+
+Presidio remains a reasonable **user-side** choice for anyone wanting free-text
+NLP detection on top; that belongs in a README note, not in our dependencies.
 
 ### Config
 
@@ -213,7 +229,7 @@ outbound-only install remains dependency-free.
 "inbound": {
   "enabled": false,
   "secrets": "redact",      // redact | off
-  "pseudonymise": false,    // requires the optional Presidio extra
+  "pseudonymise": false,    // stable fakes from the denylist, no dependency
   "native_read": "warn"     // warn | block | allow
 }
 ```

@@ -108,8 +108,12 @@ the host's native read tool (`Read`, `view`) cannot be sanitised — it warns an
 allows. The most common way an agent ingests a `.env` is that tool, so inbound
 protection is best-effort by design.
 
-Pseudonymising business data is a further opt-in requiring Presidio, kept as an
-optional extra so an outbound-only install stays dependency-free.
+Pseudonymising business data is a further opt-in, and needs no dependency: each
+denylist value maps to a stable fake derived by hashing it, so the agent sees
+consistent tokens it can still reason about. Presidio was considered and cut —
+its analyzer solves free-text PII detection, which is exactly the approach this
+tool argues against, and loading a spaCy model inside a per-call hook would blow
+the timeout budget and silently disable the guard.
 
 ## Covered
 

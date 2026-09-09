@@ -21,9 +21,6 @@ classifiers = [
 [project.scripts]
 looselips = "looselips:main"
 
-[project.optional-dependencies]
-anonymise = ["presidio-analyzer", "presidio-anonymizer"]
-
 [project.urls]
 Homepage = "https://github.com/reinvently/looselips"
 
