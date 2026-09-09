@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="looselips-guard" width="360">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo.svg" alt="looselips-guard" width="360">
+  </picture>
 </p>
 
 <p align="center">
@@ -10,10 +13,10 @@
   <img src="https://img.shields.io/badge/status-alpha-d29922" alt="Alpha">
 </p>
 
-Loose lips sinks shops. 
+## Loose lips sinks shops. 
 
-Problem
-So you want to run agents and you want to run them unattended. Obviously you can sandbox, but if you want to do anything important, you need to give them access to the outside world: internet, git, your emails.  How do you stop the very real danger of it firing your personal information out when you don't want it to because the LLM doesn't know any better.
+## Problem
+So you want to run agents and you want to run them unattended. Obviously you can sandbox, run local LLMs, but if you want to do anything important, you need to give them access to the outside world: internet, git, your emails.  How do you stop the very real danger of it firing your personal information out when you don't want it to because the LLM doesn't know any better.
 
 What looselips-guard does
 Existing tools stop your secrets reaching the model.
