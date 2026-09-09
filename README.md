@@ -1,4 +1,14 @@
-# gitsafely
+<p align="center">
+  <img src="assets/logo.svg" alt="gitsafely" width="320">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/hook-PreToolUse-2f81f7" alt="PreToolUse hook">
+  <img src="https://img.shields.io/badge/python-3.8%2B-3776ab" alt="Python 3.8+">
+  <img src="https://img.shields.io/badge/dependencies-none-2da44e" alt="No dependencies">
+  <img src="https://img.shields.io/badge/scope-outbound%20egress-8250df" alt="Outbound egress">
+  <img src="https://img.shields.io/badge/status-alpha-d29922" alt="Alpha">
+</p>
 
 Existing tools stop your secrets reaching the model.
 This stops the agent publishing your data to the world.
@@ -70,3 +80,7 @@ it anyway.
 `python3 test_gitsafely.py` — synthetic fixtures with the shapes of a real
 incident (a ticker beside a currency amount, a balance line, a holdings table,
 an oversized SQLite backup). No real data ships here.
+
+## Credits
+
+Built with [Reinvently](https://reinvently.com).

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96" width="320" height="96" role="img" aria-label="gitsafely">
+  <style>
+    .word { fill: #0d1117 }
+    @media (prefers-color-scheme: dark) { .word { fill: #e6edf3 } }
+  </style>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f81f7"/>
+      <stop offset="1" stop-color="#1f6feb"/>
+    </linearGradient>
+  </defs>
+  <!-- shield -->
+  <path d="M44 10 76 21v24c0 18-13 31-32 38C25 76 12 63 12 45V21z" fill="url(#g)"/>
+  <path d="M44 10 76 21v24c0 18-13 31-32 38C25 76 12 63 12 45V21z" fill="none" stroke="#0d1117" stroke-opacity=".25" stroke-width="2"/>
+  <!-- git branch: trunk with a blocked branch -->
+  <g stroke="#fff" stroke-width="4.5" fill="none" stroke-linecap="round">
+    <path d="M34 30v30"/>
+    <path d="M34 44h12a8 8 0 0 1 8 8v4"/>
+  </g>
+  <circle cx="34" cy="28" r="6" fill="#fff"/>
+  <circle cx="34" cy="62" r="6" fill="#fff"/>
+  <circle cx="54" cy="60" r="7" fill="#fff"/>
+  <path d="M50.5 56.5l7 7M57.5 56.5l-7 7" stroke="#d1242f" stroke-width="3.5" stroke-linecap="round"/>
+  <!-- wordmark -->
+  <text x="96" y="58" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="34" font-weight="700" class="word">git<tspan fill="#1f6feb">safely</tspan></text>
+</svg>
