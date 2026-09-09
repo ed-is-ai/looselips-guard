@@ -2,8 +2,8 @@
   <!-- speech bubble, sealed shut -->
   <path fill="#fff" stroke="#30363d" stroke-width="2" d="M20 18h56a10 10 0 0 1 10 10v32a10 10 0 0 1-10 10H46L28 84V70h-8a10 10 0 0 1-10-10V28a10 10 0 0 1 10-10z"/>
   <!-- sealed red lips -->
-  <path fill="#cf222e" d="M23 47q13-13 25-2 13-11 25 2-13 18-25 18-13 0-25-18z"/>
-  <path d="M23 47q25 7 50 0" fill="none" stroke="#7d0a1b" stroke-width="3" stroke-linecap="round"/>
+  <path fill="#cf222e" d="M23 42q13-13 25-2 13-11 25 2-13 18-25 18-13 0-25-18z"/>
+  <path d="M23 42q25 7 50 0" fill="none" stroke="#7d0a1b" stroke-width="3" stroke-linecap="round"/>
   <!-- guard: slash struck across the bubble -->
   <path d="M4 50 L94 44" stroke="#0d1117" stroke-width="8" stroke-linecap="round"/>
   <!-- wordmark -->
