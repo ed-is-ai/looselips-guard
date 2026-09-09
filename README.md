@@ -8,6 +8,7 @@
   <img src="https://img.shields.io/badge/dependencies-none-2da44e" alt="No dependencies">
   <img src="https://img.shields.io/badge/scope-outbound%20egress-8250df" alt="Outbound egress">
   <img src="https://img.shields.io/badge/status-alpha-d29922" alt="Alpha">
+  <a href="docs/superpowers/specs/2026-09-09-looselips-design.md"><img src="https://img.shields.io/badge/spec-design-6e7781" alt="Design spec"></a>
 </p>
 
 Existing tools stop your secrets reaching the model.
@@ -36,6 +37,40 @@ Copy `.looselips.example.json` to `.looselips.json` in the project you want
 guarded. No config file = no denylist = nothing blocked except oversized files
 being staged.
 
+Claude Code works today. Seven more hosts are designed and not yet built — see
+**Hosts** below, and [the design spec](docs/superpowers/specs/2026-09-09-looselips-design.md)
+for the full reasoning.
+
+## Hosts
+
+The matcher is identical everywhere. What differs is how each host hands us the
+command and how we say no.
+
+| Host | Integration | Status |
+|---|---|---|
+| Claude Code | `PreToolUse`, exit 2 | **works today** |
+| Codex | `PreToolUse`, exit 2 | designed |
+| GitHub Copilot | `preToolUse`, JSON deny | designed |
+| Cursor | `beforeShellExecution`, JSON deny | designed |
+| opencode | `tool.execute.before`, throw | designed |
+| OpenClaw | `before_tool_call`, supports fail-closed | designed |
+| Hermes Agent | `pre_tool_call` (Python) | designed |
+| DeepSeek Harness | Claude Code / Codex hook bridge | unverified |
+
+Two things worth knowing before you rely on this:
+
+- **Every command-hook host is fail-open on timeout.** Claude Code's own docs
+  say not to count on a stalled hook as a gate. A slow hook doesn't annoy you,
+  it silently stops guarding. That's why the denylist is cached and the core has
+  no dependencies.
+- **opencode does not intercept subagent tool calls**
+  ([open issue](https://github.com/anomalyco/opencode/issues/5894)), so a
+  delegated `gh` call bypasses the guard there. Not ours to fix, but yours to
+  know.
+
+Antigravity is deliberately unsupported: there are open reports its hooks never
+fire, and a guard that might not run is worse than no guard.
+
 ## Config
 
 The denylist is **generated from your own data**, not from generic PII regexes.
@@ -50,8 +85,31 @@ a phone regex matches every SEDOL and order ID in a finance repo.
   collisions before this list is needed.
 - `max_added_file_bytes` — files larger than this cannot be staged (default 500 KB).
 
-Secrets and API keys are deliberately out of scope: generic detection genuinely
-works there. Run `gitleaks` for those.
+Secrets and API keys are not part of the denylist: generic detection genuinely
+works there, so we delegate to `gitleaks` rather than reimplement it.
+
+## Inbound guard (planned, opt-in)
+
+Outbound is the product. Inbound — stopping secrets reaching the model — is a
+separate, opt-in mode, because **the two directions need opposite rules**: in
+the incident that motivated this tool, the model was *supposed* to see the
+portfolio. Applying the outbound denylist inbound would block the agent from
+doing its job on every call.
+
+So inbound guards secrets only, and redacts rather than blocks:
+
+```
+cat .env      →     cat .env | looselips redact
+```
+
+That works because `PreToolUse` can rewrite tool input. It has a hard limit
+worth stating plainly: **nothing can rewrite tool *output***, so a read through
+the host's native read tool (`Read`, `view`) cannot be sanitised — it warns and
+allows. The most common way an agent ingests a `.env` is that tool, so inbound
+protection is best-effort by design.
+
+Pseudonymising business data is a further opt-in requiring Presidio, kept as an
+optional extra so an outbound-only install stays dependency-free.
 
 ## Covered
 
@@ -72,7 +130,9 @@ it anyway.
 
 - Anything typed into github.com in a browser. A `PreToolUse` hook only sees
   agent-initiated calls.
-- Redaction. Claude Code hooks can block, not rewrite.
+- Rewriting outbound payloads. Silently altering an issue body the agent wrote
+  is worse than refusing it, so outbound blocks and never edits. (Inbound may
+  redact — see above.)
 - `curl`/`wget`, MCP calls, `git push`. Extend `is_gh_write` when needed.
 
 ## Test
