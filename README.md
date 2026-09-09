@@ -40,8 +40,9 @@ It covers the two routes a git-history scanner misses completely:
 
 ## Getting started
 
-Two steps, about two minutes. Claude Code works today; [other hosts](#hosts)
-are designed and not yet built.
+Two steps, about two minutes. Claude Code, [Codex](#codex) and
+[GitHub Copilot](#github-copilot) work today; [other hosts](#hosts) are designed
+and not yet built.
 
 **1. Install the plugin.** In Claude Code:
 
@@ -80,6 +81,53 @@ Then in `.claude/settings.json`, project or global, point the hook at it
   }
 }
 ```
+</details>
+
+<details id="codex"><summary>Codex</summary>
+
+Codex hands a `PreToolUse` hook the same JSON Claude Code does — `tool_input.command`,
+`cwd` — and blocks on `exit 2` with the reason on stderr, so the same script runs
+unchanged. Get it on PATH (`npm install -g looselips-guard`, needs `python3`), then
+merge [`hooks/codex-hooks.json`](hooks/codex-hooks.json) into `~/.codex/hooks.json`
+(global) or `<repo>/.codex/hooks.json` (one project):
+
+```jsonc
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Bash",
+      "hooks": [{ "type": "command", "command": "looselips-guard" }]
+    }]
+  }
+}
+```
+</details>
+
+<details id="github-copilot"><summary>GitHub Copilot</summary>
+
+Register under the **PascalCase** `PreToolUse` key — that selects Copilot's
+VS Code-compatible payload (`tool_input.command`, `cwd`), which is what the script
+reads. Copilot's tool is named `bash`, so the matcher is `bash|shell`, not `Bash`.
+`exit 2` blocks. Get it on PATH as above, then drop
+[`hooks/copilot-hooks.json`](hooks/copilot-hooks.json) at
+`.github/hooks/looselips-guard.json` (one repo) or `~/.copilot/hooks/looselips-guard.json`
+(global):
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "PreToolUse": [
+      { "type": "command", "bash": "looselips-guard", "matcher": "bash|shell" }
+    ]
+  }
+}
+```
+
+Copilot fails **closed** on any non-zero exit other than 2 (`hook errored`) and
+fails open only on timeout. Two known Copilot bugs, not ours: plugin-defined hooks
+don't always fire ([copilot-cli#2540](https://github.com/github/copilot-cli/issues/2540)),
+and subagent tool calls aren't gated ([#2392](https://github.com/github/copilot-cli/issues/2392)).
 </details>
 
 Either way, that alone blocks oversized files being staged and any credential the ported
@@ -197,8 +245,8 @@ command and how we say no.
 | Host | Integration | Status |
 |---|---|---|
 | Claude Code | `PreToolUse`, exit 2 | **works today** |
-| Codex | `PreToolUse`, exit 2 | designed |
-| GitHub Copilot | `preToolUse`, JSON deny | designed |
+| Codex | `PreToolUse`, exit 2 | **works today** — same script, [wiring](#codex) |
+| GitHub Copilot | `PreToolUse` (PascalCase), exit 2 | **works today** — same script, [wiring](#github-copilot) |
 | Cursor | `beforeShellExecution`, JSON deny | designed |
 | opencode | `tool.execute.before`, throw | designed |
 | OpenClaw | `before_tool_call`, supports fail-closed | designed |

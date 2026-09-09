@@ -91,6 +91,19 @@ def main():
         assert run(f"git commit -m {json.dumps(LEAKS[0])}")
         assert not run("git commit -m 'fix currency resolution'")
 
+        # end to end: the shape Claude Code, Codex and Copilot all send on stdin,
+        # and the exit 2 all three read as a block
+        script = os.path.join(os.path.dirname(__file__), "looselips_guard.py")
+        event = json.dumps({"tool_input": {"command":
+                 f"gh issue create --title t --body {json.dumps(LEAKS[0])}"}, "cwd": tmp})
+        p = subprocess.run([sys.executable, script], input=event,
+                           capture_output=True, text=True)
+        assert p.returncode == 2, p.returncode
+        assert "ZQXF" in p.stderr, p.stderr
+        clean = json.dumps({"tool_input": {"command": "gh issue view 5"}, "cwd": tmp})
+        assert subprocess.run([sys.executable, script], input=clean,
+                              capture_output=True, text=True).returncode == 0
+
     print("ok")
 
 
