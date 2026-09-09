@@ -16,12 +16,12 @@
 <p align="center"><em>Loose lips sink shops.</em></p>
 
 You want to run agents unattended. Sure, you can sandbox them and run a local
-model — but to do anything useful you have to hand them the outside world: the
+model — but to do anything useful you have to let them access the outside world: the
 internet, git, your email. And nothing there stops an agent firing your personal
-data into a public issue when it shouldn't, because the model doesn't know any
+data when it shouldn't, because the model doesn't know any
 better.
 
-Existing tools stop your secrets reaching the model. **looselips-guard stops the
+Existing agent tools focus on stopping your secrets reaching the model. **looselips-guard stops the
 agent publishing your data to the world.** It blocks a command *before it runs*
 when what's leaving the machine has something in it that shouldn't go: a banned
 string from your denylist, a credential, or a suspiciously big file that's
