@@ -167,11 +167,12 @@ no shell-command hook at all — and gets a small in-process plugin.
 | A size limit on staged files | The 1.1 MB SQLite backup | One rule closes the entire git-object route |
 
 **Speed is a correctness requirement, not a nicety.** Most hosts are fail-open on
-timeout — Claude Code's own docs say not to count on a stalled hook as a gate,
-and only Cursor and Hermes can be told to fail closed. A slow hook doesn't annoy
-you, it silently stops guarding. So: no dependencies, nothing imported that
-isn't needed (argparse only when a subcommand is given, never on the hook path),
-and a keyword prefilter in front of the secret rules.
+timeout — Claude Code's own docs say not to count on a stalled hook as a gate
+([hooks reference](https://code.claude.com/docs/en/hooks)) — and only Cursor and
+Hermes can be told to fail closed. A slow hook doesn't annoy you, it silently
+stops guarding. So: no dependencies, nothing imported that isn't needed (argparse
+only when a subcommand is given, never on the hook path), and a keyword prefilter
+in front of the secret rules.
 
 | Operation | Measured |
 |---|---|
@@ -180,6 +181,20 @@ and a keyword prefilter in front of the secret rules.
 | Secret prefilter, clean payload | 0.25 ms — no regex compiled at all |
 | Secret rules when something matches | ~1 ms |
 | Compiling all 221 rules, if we didn't prefilter | 19.8 ms |
+
+**In practice the timeout race isn't close.** Claude Code's default `PreToolUse`
+timeout is **600 seconds** ([hooks reference](https://code.claude.com/docs/en/hooks));
+Codex's is the same ([Codex hooks](https://developers.openai.com/codex/hooks)). A
+21 ms hook against a ten-minute ceiling doesn't fail open by accident — it would
+have to *hang*: block forever on unreadable input, or catch a pathological regex.
+The design closes those specifically — no dependencies to hang in, lazy imports,
+`--body-file -` is blocked rather than read, and a bad `patterns` entry is
+skipped, not run. The residual fail-open risks are a genuinely stuck process and
+an adversary who can deliberately stall the hook; for those, only a fail-closed
+host (Cursor, Hermes) or network egress control helps, not a faster hook. You can
+also set a short explicit `timeout` in the Claude Code hook config — it won't
+make the hook fail closed, but a hung one then gets cancelled in seconds instead
+of stalling the session for ten minutes.
 
 ---
 
@@ -205,7 +220,11 @@ init` does it for you.
 Two things worth knowing before you rely on this:
 
 - **Every command-hook host is fail-open on timeout** except Hermes and Cursor,
-  which honour `fail_closed` / `failClosed` on the pre-execution hook.
+  which honour `fail_closed` / `failClosed` on the pre-execution hook. The window
+  is wide though — Claude Code and Codex default to a 600 s hook timeout, so a
+  21 ms hook only fails open if it truly hangs (see [How it works](#how-it-works)).
+  Copilot's and opencode's timeout budgets we haven't pinned down; verify against
+  their docs if it matters to you.
 - **opencode does not intercept subagent tool calls**
   ([open issue](https://github.com/anomalyco/opencode/issues/5894)), so a
   delegated `gh` call bypasses the guard there. Not ours to fix, but yours to
