@@ -13,121 +13,115 @@
   <img src="https://img.shields.io/badge/status-alpha-d29922" alt="Alpha">
 </p>
 
-## Loose lips sinks shops. 
+<p align="center"><em>Loose lips sink shops.</em></p>
 
-## Problem
-So you want to run agents and you want to run them unattended. Obviously you can sandbox, run local LLMs, but if you want to do anything important, you need to give them access to the outside world: internet, git, your emails.  How do you stop the very real danger of it firing your personal information out when you don't want it to because the LLM doesn't know any better.
+You want to run agents unattended. Sure, you can sandbox them and run a local
+model — but to do anything useful you have to hand them the outside world: the
+internet, git, your email. And nothing there stops an agent firing your personal
+data into a public issue when it shouldn't, because the model doesn't know any
+better.
 
-What looselips-guard does
-Existing tools stop your secrets reaching the model.
-**This stops the agent publishing your data to the world.**
+Existing tools stop your secrets reaching the model. **looselips-guard stops the
+agent publishing your data to the world.** It blocks a command *before it runs*
+when what's leaving the machine has something in it that shouldn't go: a banned
+string from your denylist, a credential, or a suspiciously big file that's
+probably a database dump. All three run in the one hook, in a single pass over
+the payload, before the command executes — the credential check is
+[gitleaks](https://github.com/gitleaks/gitleaks)' 221 secret-detection rules
+ported to run in-process, not a separate scanner you install or invoke.
 
-It blocks a command *before it runs* when the payload leaving your machine
-contains your own data — the values you told it about, or a credential it
-recognises. It covers the two routes git-object scanners miss entirely:
-**issue and PR bodies**, which never become git objects at all, and
-**`git add -A`** sweeping a live database onto a public branch.
+It covers the two routes a git-history scanner misses completely:
+
+- **issue and PR bodies** — they never become git objects, so a scanner never
+  sees them
+- **`git add -A`** quietly sweeping a live database onto a public branch
 
 ---
 
 ## Getting started
 
-Two steps, about two minutes. Claude Code works today; [other hosts](#hosts)
-are designed and not yet built.
-
-**1. Install the plugin.** In Claude Code:
-
-```
-/plugin marketplace add ed-is-ai/looselips-guard
-/plugin install looselips-guard@ed-is-ai
-```
-
-That wires the `PreToolUse` hook for you. Needs `python3` on `PATH`.
-
-<details><summary>Or wire the hook by hand</summary>
-
-Get `looselips-guard` onto your machine, either:
+**1. Get `looselips-guard` on your machine.** One of:
 
 ```bash
-npm install -g looselips-guard                       # needs python3 on PATH
+npm install -g looselips-guard      # puts `looselips-guard` on PATH; needs python3
 ```
-
-or clone it:
 
 ```bash
 git clone https://github.com/ed-is-ai/looselips-guard.git ~/looselips-guard
-python3 ~/looselips-guard/test_looselips_guard.py                 # should print: ok
+alias looselips-guard='python3 ~/looselips-guard/looselips_guard.py'   # so the commands below work as written
 ```
 
-Then in `.claude/settings.json`, project or global, point the hook at it
-(`looselips-guard` if installed via npm, the script path if cloned):
+It's one dependency-free Python file either way. In Claude Code,
+`/plugin install looselips-guard@ed-is-ai` also wires the Claude hook — but you
+still want one of the above for `init` / `add` / `check`.
 
-```jsonc
-{
-  "hooks": {
-    "PreToolUse": [{
-      "matcher": "Bash",
-      "hooks": [{ "type": "command", "command": "looselips-guard" }]
-    }]
-  }
-}
-```
-</details>
-
-Either way, that alone blocks oversized files being staged and any credential the ported
-[gitleaks](https://github.com/gitleaks/gitleaks) rules recognise — no config
-needed.
-
-**2. Tell it what your data looks like.** Step 1 guards credentials and
-oversized files with no config. To also block *your own data* — the strings
-generic PII rules can't recognise — copy `.looselips-guard.example.json` to
-`.looselips-guard.json` in the project you want guarded:
-
-```jsonc
-{
-  "sources": [
-    { "type": "sqlite", "path": "data/ledger.db",
-      "query": "SELECT DISTINCT symbol FROM trades" }
-  ],
-  "allow": ["ALL", "ON", "GO", "CAT"],
-  "values": ["Acct-99001122"]
-}
-```
-
-Now the values in your own ledger cannot leave the machine by accident.
-`.looselips-guard.json` is never committed.
-
-**When the data changes**, `sources` keep up on their own — the query, CSV or
-env file is re-read on every scan, so a ticker you bought this morning is
-already guarded. Only `values` (literals typed into the config) and `allow`
-need a hand edit.
-
-**Check it works:**
+**2. Wire it and describe your data**, from the project you want guarded:
 
 ```bash
-echo '{"tool_input":{"command":"gh issue create --title t --body \"ZQXF 300 shares\""},"cwd":"'$PWD'"}' \
-  | python3 ~/looselips-guard/looselips_guard.py; echo "exit=$?"
+looselips-guard init      # scaffold config, detect your agent, wire its hook
+looselips-guard add ZQXF VNTR Acct-99001122
+looselips-guard add "ZQXF,VNTR,ACME Corp,Acct-99001122"   # or one comma-separated list
+looselips-guard add --like Acct-99001122                  # block the format: \bAcct-\d{8}\b
+looselips-guard check     # confirm it's guarding you
 ```
 
-Exit 2 with a message naming what matched means it's guarding you.
+`init` bakes the hook command in the form you invoked it — the `looselips-guard`
+bin if you npm-installed, the script's own path if you cloned — so it keeps
+working. It also writes `.looselips-guard.json`, detects your host from
+`~/.claude`, `~/.codex`, `~/.cursor`, `~/.hermes` or `.github/`, and merges the
+hook into that host's config file in place, leaving your other hooks alone.
+
+Even before any `add`, the hook already blocks oversized files being staged and
+any credential the ported [gitleaks](https://github.com/gitleaks/gitleaks) rules
+recognise. `add` extends it with your own strings — tickers, account ids,
+balances — that generic PII rules can't spot. For data that changes often, point
+a `source` at it instead (see [Config](#config)) and it is re-read on every scan.
+`.looselips-guard.json` and `.looselips-guard.list` are never committed;
+[`.looselips-blocklist-example.json`](.looselips-blocklist-example.json) is the
+template `init` copies from.
+
+### Per host
+
+`looselips-guard init <host>` when detection misses; `--global` writes the
+home-directory config instead of the project one. What `init` does per host, and
+the one thing worth knowing:
+
+| `host` | `init` wires | Worth knowing |
+|---|---|---|
+| `claude`  | `.claude/settings.json` | or `/plugin install looselips-guard@ed-is-ai` in Claude Code |
+| `codex`   | `~/.codex/hooks.json` | same event shape as Claude, `exit 2` blocks |
+| `copilot` | `.github/hooks/looselips-guard.json` | matcher `bash\|shell`; known bugs, not ours — plugin hooks don't always fire ([#2540](https://github.com/github/copilot-cli/issues/2540)), subagents ungated ([#2392](https://github.com/github/copilot-cli/issues/2392)) |
+| `cursor`  | `~/.cursor/hooks.json` | `failClosed: true` — blocks on a slow hook instead of failing open |
+| `hermes`  | prints YAML for `~/.hermes/config.yaml` | shell tool is `terminal`; `fail_closed: true`, like Cursor |
+
+Two hosts need a hand because they have no shell-command hook:
+
+- **OpenClaw / OpenClaw 2** — in-process TS plugin.
+  `cp integrations/openclaw/looselips-guard.plugin.ts ~/.openclaw/policies/`, then
+  add `"~/.openclaw/policies/looselips-guard.plugin.ts"` to `plugins.load.paths`
+  in `~/.openclaw/openclaw.json`.
+- **DeepSeek Harness** — enable its Claude Code / Codex `hooks.json` bridge and
+  point it at [`hooks/codex-hooks.json`](hooks/codex-hooks.json). Unverified.
+
+Every host is fail-open on a slow hook except Cursor and Hermes.
 
 ---
 
 ## How it works
 
-Three layers. Only the middle one ever changes when a new host appears.
+Four steps in one pass, and the host-specific part is almost nothing.
 
 ```
   agent runs a command
           │
           ▼
-  ┌───────────────────┐   the host pauses the tool call and hands us
-  │  host pre-tool    │   the command as JSON on stdin
+  ┌───────────────────┐   the host pauses the tool call and pipes the
+  │  host pre-tool    │   command to us as JSON on stdin
   │  hook             │
   └─────────┬─────────┘
             ▼
-  ┌───────────────────┐   knows where each host puts the command and
-  │  host adapter     │   how each host expects to be told "no"
+  ┌───────────────────┐   read `command` and `cwd` from the event;
+  │  host adapter     │   later, block with `exit 2` — that's the whole of it
   └─────────┬─────────┘
             ▼
   ┌───────────────────┐   is this a write to the outside world?
@@ -138,8 +132,8 @@ Three layers. Only the middle one ever changes when a new host appears.
   │  payload          │   git add is resolved via --dry-run
   └─────────┬─────────┘
             ▼
-  ┌───────────────────┐   your denylist  ·  221 secret rules  ·  size limit
-  │  rules            │
+  ┌───────────────────┐   denylist + your regex patterns · 221 secret
+  │  rules            │   rules · staged-file size limit
   └─────────┬─────────┘
             ▼
      allow   or   block, naming exactly what matched and where
@@ -151,25 +145,27 @@ scanner at the git boundary never runs on an issue body; a guard at the model
 boundary sees the agent legitimately read your database and then says nothing
 when it pastes the balance into a public issue.
 
-**The host adapter is deliberately thin.** Every host gives us the same thing —
-a command, before it runs — and differs only in where the command sits in the
-event JSON and how a refusal is expressed (`exit 2` for Claude Code and Codex, a
-JSON verdict for Copilot and Cursor, a thrown error for opencode). Manifests
-pass `--host` explicitly, so the core never has to guess.
+**There is barely a host adapter.** Every host gives us the same thing — a
+command, before it runs. Claude Code, Codex, Copilot, Hermes and the DeepSeek
+bridge send `tool_input.command`; Cursor sends `command` top-level; all pass
+`cwd` and all read `exit 2` as a block. So one script reads both keys and covers
+every one of them with no `--host` flag. Only OpenClaw is genuinely different —
+no shell-command hook at all — and gets a small in-process plugin.
 
 **Three independent rule sources**, because they fail in different directions:
 
 | Source | Catches | Why this shape |
 |---|---|---|
-| Your denylist, derived from your own data | Tickers, balances, account ids | Generic PII regexes are useless here — see below |
+| Your denylist, derived from your own data (plus opt-in regex `patterns`) | Tickers, balances, account ids and their formats | Generic PII regexes are useless here — see below |
 | 221 rules ported from gitleaks | API keys, tokens, private keys | Credentials *do* have recognisable shapes |
 | A size limit on staged files | The 1.1 MB SQLite backup | One rule closes the entire git-object route |
 
-**Speed is a correctness requirement, not a nicety.** Every host is fail-open on
-timeout — Claude Code's own docs say not to count on a stalled hook as a gate.
-A slow hook doesn't annoy you, it silently stops guarding. So: no dependencies,
-nothing imported that isn't needed, and a keyword prefilter in front of the
-secret rules.
+**Speed is a correctness requirement, not a nicety.** Most hosts are fail-open on
+timeout — Claude Code's own docs say not to count on a stalled hook as a gate,
+and only Cursor and Hermes can be told to fail closed. A slow hook doesn't annoy
+you, it silently stops guarding. So: no dependencies, nothing imported that
+isn't needed (argparse only when a subcommand is given, never on the hook path),
+and a keyword prefilter in front of the secret rules.
 
 | Operation | Measured |
 |---|---|
@@ -186,20 +182,24 @@ secret rules.
 The matcher is identical everywhere. What differs is how each host hands us the
 command and how we say no.
 
+Wiring for each is in [Getting started › Per host](#per-host); `looselips-guard
+init` does it for you.
+
 | Host | Integration | Status |
 |---|---|---|
 | Claude Code | `PreToolUse`, exit 2 | **works today** |
-| Codex | `PreToolUse`, exit 2 | designed |
-| GitHub Copilot | `preToolUse`, JSON deny | designed |
-| Cursor | `beforeShellExecution`, JSON deny | designed |
+| Codex | `PreToolUse`, exit 2 | **works today** |
+| GitHub Copilot | `PreToolUse` (PascalCase), exit 2 | **works today** |
+| Hermes Agent | `pre_tool_call` shell hook, exit 2 | **works today** |
+| Cursor | `beforeShellExecution`, exit 2 | **works today**  |
+| OpenClaw / OpenClaw 2 | `before_tool_call` plugin, `{ block }` | **works today** — bundled plugin |
+| DeepSeek Harness | Claude Code / Codex hook bridge | works via bridge — unverified |
 | opencode | `tool.execute.before`, throw | designed |
-| OpenClaw | `before_tool_call`, supports fail-closed | designed |
-| Hermes Agent | `pre_tool_call` (Python) | designed |
-| DeepSeek Harness | Claude Code / Codex hook bridge | unverified |
 
 Two things worth knowing before you rely on this:
 
-- **Every command-hook host is fail-open on timeout**, as above.
+- **Every command-hook host is fail-open on timeout** except Hermes and Cursor,
+  which honour `fail_closed` / `failClosed` on the pre-execution hook.
 - **opencode does not intercept subagent tool calls**
   ([open issue](https://github.com/anomalyco/opencode/issues/5894)), so a
   delegated `gh` call bypasses the guard there. Not ours to fix, but yours to
@@ -214,8 +214,8 @@ fire, and a guard that might not run is worse than no guard.
 
 All of this lives in **`.looselips-guard.json`** at the root of the project you are
 guarding — the working directory the command runs in. It is never committed.
-`.looselips-guard.example.json` is only a template to copy from; `.looselips-guard.list`
-(below) is one optional data source, not the config itself.
+`.looselips-blocklist-example.json` is only a template to copy from;
+`.looselips-guard.list` (below) is one optional data source, not the config itself.
 
 The denylist is **generated from your own data**, not from generic PII regexes.
 Generic rules fail here, concretely: in the incident that motivated this tool
@@ -232,9 +232,16 @@ items found across 258 issues and 306 PRs, with zero false positives.
 - `sources` — pull entries from a file instead, re-read on every scan:
   `txt` (path, one value per line, `#` comments), `csv` (path + column),
   `sqlite` (path + query), `env` (path, the value side of each `KEY=value`).
+- `patterns` — regexes, matched raw (you write your own anchors), for when
+  you want a *format* rather than a list: `\bAcct-\d{8}\b`, an internal hostname
+  suffix. This is the one place generic-regex risk is yours to own — see the
+  warning above. `looselips-guard add --regex '<pattern>'` appends one;
+  `add --like 'Acct-99001122'` derives `\bAcct-\d{8}\b` from an example and
+  appends that. A pattern that won't compile is warned about on stderr and
+  skipped, never fatal.
 - `allow` — collision list, for tickers that are also words (`ALL`, `ON`, `CAT`).
   Matching is case-sensitive with word boundaries, which removes most collisions
-  before this list is needed.
+  before this list is needed. `allow` does not apply to `patterns`.
 - `max_added_file_bytes` — files larger than this cannot be staged (default 500 KB).
 
 Secrets are handled separately, by 221 rules ported from gitleaks, so there is

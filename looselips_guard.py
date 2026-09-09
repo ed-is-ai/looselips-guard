@@ -119,6 +119,19 @@ def scan(text, terms):
     return [t for t in terms if re.search(rf"(?<![\w-]){re.escape(t)}(?![\w-])", text)]
 
 
+def compiled_patterns(config):
+    """Regexes from config["patterns"], matched raw (you anchor your own). A
+    pattern that won't compile is warned about and skipped - one bad regex must
+    not take the whole guard down."""
+    out = []
+    for p in config.get("patterns", []):
+        try:
+            out.append(re.compile(p))
+        except re.error as e:
+            print(f"looselips-guard: ignoring bad pattern {p!r}: {e}", file=sys.stderr)
+    return out
+
+
 # --- command parsing ------------------------------------------------------
 
 BODY_FLAGS = {"--body", "-b", "--title", "-t", "--message", "-m", "--subject"}
@@ -185,17 +198,23 @@ def check(command, cwd, config):
     while argv and re.match(r"^\w+=", argv[0]):  # strip env-var prefixes
         argv.pop(0)
     findings = []
-    terms = None
+    terms = pats = None
     seen = set()
 
     def hits(text, where):
-        nonlocal terms
+        nonlocal terms, pats
         if terms is None:
             terms = denylist(config, cwd)
+            pats = compiled_patterns(config)
         for t in scan(text, terms):
             if t not in seen:                     # same value in body and command
                 seen.add(t)
                 findings.append(f"{where}: {t!r}")
+        for rx in pats:
+            key = f"pat:{rx.pattern}"
+            if key not in seen and rx.search(text):
+                seen.add(key)
+                findings.append(f"{where}: matches /{rx.pattern}/")
         for rule_id in secret_findings(text):
             if rule_id not in seen:
                 seen.add(rule_id)
@@ -232,20 +251,238 @@ def check(command, cwd, config):
     return findings
 
 
+# --- setup CLI ----------------------------------------------------------
+# Inlined so `looselips-guard init` works from a bare `npm i -g` with no
+# repo checkout. Keep in step with .looselips-blocklist-example.json and hooks/.
+
+CONFIG_TEMPLATE = {
+    "values": ["Acct-99001122"],
+    "patterns": [],
+    "allow": ["ALL", "ON", "GO", "CAT"],
+    "sources": [{"type": "txt", "path": ".looselips-guard.list"}],
+    "max_added_file_bytes": DEFAULT_MAX_BYTES,
+}
+
+HOST_NAMES = ["claude", "codex", "copilot", "cursor", "hermes"]
+
+
+def _invocation():
+    """The command a wired hook should run, matching how this CLI was reached:
+    the `looselips-guard` bin if it's on PATH (npm), else this very script."""
+    import shutil
+    return shutil.which("looselips-guard") and "looselips-guard" \
+        or f"python3 {shlex.quote(os.path.abspath(__file__))}"
+
+
+def _hosts(cmd):
+    claude = {"matcher": "Bash", "hooks": [{"type": "command", "command": cmd}]}
+    return {
+        "claude":  {"path": ".claude/settings.json", "event": "PreToolUse", "entry": claude},
+        "codex":   {"path": ".codex/hooks.json", "event": "PreToolUse", "entry": claude},
+        "copilot": {"path": ".github/hooks/looselips-guard.json",
+                    "home_path": ".copilot/hooks/looselips-guard.json",
+                    "version": 1, "event": "PreToolUse",
+                    "entry": {"type": "command", "bash": cmd, "matcher": "bash|shell"}},
+        "cursor":  {"path": ".cursor/hooks.json", "version": 1,
+                    "event": "beforeShellExecution",
+                    "entry": {"command": cmd, "failClosed": True}},
+        "hermes":  {"path": ".hermes/config.yaml", "yaml":
+                    f'hooks:\n  pre_tool_call:\n    - matcher: "terminal"\n'
+                    f'      command: "{cmd}"\n      timeout: 5\n      fail_closed: true\n'},
+    }
+
+
+def _detected_hosts():
+    home, here = os.path.expanduser("~"), os.getcwd()
+    checks = {
+        "claude":  [f"{home}/.claude", f"{home}/.claude.json", f"{here}/.claude"],
+        "codex":   [f"{home}/.codex"],
+        "cursor":  [f"{home}/.cursor", f"{here}/.cursor"],
+        "hermes":  [f"{home}/.hermes", f"{here}/.hermes"],
+        "copilot": [f"{home}/.copilot", f"{here}/.github"],
+    }
+    return [h for h, paths in checks.items() if any(os.path.exists(p) for p in paths)]
+
+
+def _wire_json(path, host):
+    data = {}
+    if os.path.exists(path):
+        with open(path) as f:
+            data = json.load(f) or {}
+    if "version" in host:
+        data.setdefault("version", host["version"])
+    arr = data.setdefault("hooks", {}).setdefault(host["event"], [])
+    if "looselips" in json.dumps(arr):          # hyphen or underscore, any path
+        return "already wired"
+    arr.append(host["entry"])
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    return "wired"
+
+
+def cmd_init(names, use_home):
+    cfg = os.path.join(os.getcwd(), CONFIG_NAME)
+    if os.path.exists(cfg):
+        print(f"{CONFIG_NAME} already exists, left as is")
+    else:
+        with open(cfg, "w") as f:
+            json.dump(CONFIG_TEMPLATE, f, indent=2)
+            f.write("\n")
+        print(f"wrote {CONFIG_NAME} - list your own data in it (see README > Config)")
+
+    me = _invocation()
+    hosts = _hosts(me)
+    targets = names or _detected_hosts()
+    if not targets:
+        print(f"\nno host detected. Pass one explicitly:\n"
+              f"  {me} init [--global] " + "|".join(HOST_NAMES))
+        return 0
+    base = os.path.expanduser("~") if use_home else os.getcwd()
+    for name in targets:
+        host = hosts[name]
+        if "yaml" in host:
+            print(f"\n{name}: merge into ~/{host['path']} (YAML, do it by hand) -\n\n"
+                  + "".join("    " + l + "\n" for l in host["yaml"].splitlines()))
+            continue
+        rel = host.get("home_path", host["path"]) if use_home else host["path"]
+        path = os.path.join(base, rel)
+        print(f"{name}: {_wire_json(path, host)} -> {path}")
+
+    print(f"\nverify:  {me} check")
+    return 0
+
+
+def regex_from_example(s):
+    """Turn a sample value into a regex: digit runs become \\d{n}, everything
+    else stays literal. 'Acct-99001122' -> r'\\bAcct\\-\\d{8}\\b'."""
+    parts = [rf"\d{{{len(c.group())}}}" if c.group().isdigit() else re.escape(c.group())
+             for c in re.finditer(r"\d+|\D+", s)]
+    return r"\b" + "".join(parts) + r"\b"
+
+
+def _add_patterns(pats):
+    cfg = os.path.join(os.getcwd(), CONFIG_NAME)
+    data = json.load(open(cfg)) if os.path.exists(cfg) else dict(CONFIG_TEMPLATE)
+    arr = data.setdefault("patterns", [])
+    added = [p for p in dict.fromkeys(pats) if p not in arr]
+    arr.extend(added)
+    with open(cfg, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    print(f"added to {CONFIG_NAME} patterns: {', '.join(added) or '(nothing new)'}")
+    return 0
+
+
+def cmd_add(values, as_regex=False, like=False):
+    values = [v.strip() for v in values if v.strip()]
+
+    if as_regex:                      # comma may be a quantifier \d{2,4}, don't split
+        for p in values:
+            try:
+                re.compile(p)
+            except re.error as e:
+                print(f"bad regex {p!r}: {e}", file=sys.stderr)
+                return 1
+        return _add_patterns(values)
+    if like:
+        pats = [regex_from_example(v) for v in values]
+        for src, p in zip(values, pats):
+            print(f"  {src!r} -> /{p}/")
+        return _add_patterns(pats)
+
+    # plain literals: each arg may be a comma list - add "ZQXF,VNTR,ACME Corp"
+    values = [t.strip() for v in values for t in v.split(",") if t.strip()]
+
+    here = os.getcwd()
+    listfile = os.path.join(here, ".looselips-guard.list")
+    existing = set()
+    if os.path.exists(listfile):
+        with open(listfile) as f:
+            existing = {l.strip() for l in f
+                        if l.strip() and not l.lstrip().startswith("#")}
+    added = [v for v in dict.fromkeys(values) if v not in existing]
+    with open(listfile, "a") as f:
+        for v in added:
+            f.write(v + "\n")
+    print(f"added to .looselips-guard.list: {', '.join(added) or '(nothing new)'}")
+    for v in added:
+        if re.fullmatch(r"[a-z]+", v) or len(v) < 3:
+            print(f"  note: {v!r} is word-like; if it flags legit text, "
+                  f'add it to "allow" in {CONFIG_NAME}')
+    if not os.path.exists(os.path.join(here, CONFIG_NAME)):
+        print(f"warning: no {CONFIG_NAME} in this directory yet - run "
+              "`looselips-guard init` or the list is never read")
+    return 0
+
+
+def cmd_check():
+    cwd = os.getcwd()
+    probe = 'gh issue create --title t --body "deploy fails with AKIAIOSFODNN7EXAMPLE"'
+    findings = check(probe, cwd, load_config(cwd))
+    if any("secret" in f for f in findings):
+        print("ok - guard active, credential rules load")
+        return 0
+    print("PROBLEM: test credential AKIAIOSFODNN7EXAMPLE was not caught.\n"
+          "gitleaks_rules.py must sit next to looselips_guard.py.", file=sys.stderr)
+    return 1
+
+
+def _parser():
+    import argparse
+    p = argparse.ArgumentParser(
+        prog="looselips-guard",
+        description="Stop your coding agent publishing your data to the world. "
+                    "With no subcommand, reads a PreToolUse hook event on stdin.",
+        epilog="docs: https://github.com/ed-is-ai/looselips-guard")
+    sub = p.add_subparsers(dest="cmd")
+
+    i = sub.add_parser("init", help="scaffold config and wire the hook into a host")
+    i.add_argument("host", nargs="*", choices=HOST_NAMES,
+                   help="host(s) to wire; omit to auto-detect")
+    i.add_argument("--global", dest="use_home", action="store_true",
+                   help="write the home-directory config, not the project one")
+
+    a = sub.add_parser("add", help="add terms to the blocklist")
+    a.add_argument("value", nargs="+",
+                   help="term to block; args or a comma-separated list")
+    g = a.add_mutually_exclusive_group()
+    g.add_argument("--regex", action="store_true",
+                   help='args are regexes -> config "patterns" (you anchor your own)')
+    g.add_argument("--like", action="store_true",
+                   help="args are example values; derive a regex from each (digit runs -> \\d{n})")
+
+    sub.add_parser("check", help="self-test the install")
+    sub.add_parser("redact", help="(not implemented yet)")
+    return p
+
+
 def main():
     if len(sys.argv) > 1:
-        sub = sys.argv[1]
-        if sub in ("init", "redact"):
-            print(f"looselips-guard {sub}: not implemented yet — see the design spec",
+        args = _parser().parse_args()
+        if args.cmd == "init":
+            return cmd_init(args.host, args.use_home)
+        if args.cmd == "add":
+            return cmd_add(args.value, args.regex, args.like)
+        if args.cmd == "check":
+            return cmd_check()
+        if args.cmd == "redact":
+            print("looselips-guard redact: not implemented yet - see the design spec",
                   file=sys.stderr)
             return 1
-        print(f"looselips-guard: unknown command {sub!r}\n"
-              "usage: looselips-guard          read a hook event on stdin\n"
-              "       looselips-guard init     wire up a host and build a denylist",
-              file=sys.stderr)
-        return 1
-    event = json.load(sys.stdin)
-    command = event.get("tool_input", {}).get("command", "")
+        _parser().print_help()
+        return 0
+    if sys.stdin.isatty():           # a person ran it with no args and no pipe
+        _parser().print_help()
+        return 0
+    try:
+        event = json.load(sys.stdin)
+    except (json.JSONDecodeError, ValueError):
+        return 0                      # unparseable event: nothing to scan, allow
+    # tool_input.command: Claude Code, Codex, Copilot, Hermes. command: Cursor's
+    # beforeShellExecution puts it top-level. cwd is top-level everywhere.
+    command = event.get("tool_input", {}).get("command") or event.get("command", "")
     cwd = event.get("cwd") or os.getcwd()
     if not command:
         return 0
