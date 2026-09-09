@@ -2,10 +2,10 @@
   <!-- speech bubble, sealed shut -->
   <path fill="#fff" stroke="#30363d" stroke-width="2" d="M20 18h56a10 10 0 0 1 10 10v32a10 10 0 0 1-10 10H46L28 84V70h-8a10 10 0 0 1-10-10V28a10 10 0 0 1 10-10z"/>
   <!-- sealed red lips -->
-  <path fill="#cf222e" d="M23 42q13-13 25-2 13-11 25 2-13 18-25 18-13 0-25-18z"/>
-  <path d="M23 42q25 7 50 0" fill="none" stroke="#7d0a1b" stroke-width="3" stroke-linecap="round"/>
+  <path fill="#cf222e" d="M20 44q15 -17 30 -7q15 -10 30 7q-15 18 -30 18q-15 0 -30 -18z"/>
+  <path d="M20 44q30 8 60 0" fill="none" stroke="#7d0a1b" stroke-width="5.5" stroke-linecap="round"/>
   <!-- guard: slash struck across the bubble -->
-  <path d="M16 24 L82 66" stroke="#8b949e" stroke-width="8" stroke-linecap="round"/>
+  <path d="M14 24 L84 66" stroke="#8b949e" stroke-width="6" stroke-linecap="round"/>
   <!-- wordmark -->
   <text x="104" y="58" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="34" font-weight="700" fill="#e6edf3">loose<tspan fill="#f85149">lips</tspan>-guard</text>
 </svg>
