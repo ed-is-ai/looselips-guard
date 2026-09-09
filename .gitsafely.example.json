@@ -1,0 +1,10 @@
+{
+  "values": ["Acct-99001122", "my.real@email.example"],
+  "allow": ["T", "U", "AR", "API", "CAT", "ALL", "ON", "GO"],
+  "sources": [
+    {"type": "sqlite", "path": "data/ledger.db", "query": "SELECT DISTINCT symbol FROM trades"},
+    {"type": "csv", "path": "holdings.csv", "column": "symbol"},
+    {"type": "env", "path": ".env"}
+  ],
+  "max_added_file_bytes": 512000
+}
