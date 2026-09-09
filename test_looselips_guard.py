@@ -132,8 +132,9 @@ def main():
             assert len(got["hooks"]["beforeShellExecution"]) == 1, got
             assert os.path.exists(os.path.join(proj, ".looselips-guard.json"))
             run_cli("add", "ZQXF", "ZQXF", "VNTR")
-            lst = open(os.path.join(proj, ".looselips-guard.list")).read().split()
-            assert lst == ["ZQXF", "VNTR"], lst
+            run_cli("add", "VNTR, BRPL ,ZQXF")   # comma list, deduped and trimmed
+            lst = open(os.path.join(proj, ".looselips-guard.list")).read().splitlines()
+            assert lst == ["ZQXF", "VNTR", "BRPL"], lst
             h = run_cli("-h")
             assert h.returncode == 0 and "init" in h.stdout and "add" in h.stdout, h
             assert run_cli("init", "nope").returncode == 2  # argparse rejects bad host

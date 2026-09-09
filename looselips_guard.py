@@ -335,7 +335,8 @@ def cmd_init(names, use_home):
 
 
 def cmd_add(values):
-    values = [v.strip() for v in values if v.strip()]
+    # each arg may itself be a comma-separated list: add "ZQXF,VNTR,ACME Corp"
+    values = [t.strip() for v in values for t in v.split(",") if t.strip()]
     here = os.getcwd()
     listfile = os.path.join(here, ".looselips-guard.list")
     existing = set()
@@ -386,7 +387,8 @@ def _parser():
                    help="write the home-directory config, not the project one")
 
     a = sub.add_parser("add", help="add strings to the blocklist (.looselips-guard.list)")
-    a.add_argument("value", nargs="+", help="literal string to block")
+    a.add_argument("value", nargs="+",
+                   help="literal string to block; args or a comma-separated list")
 
     sub.add_parser("check", help="self-test the install")
     sub.add_parser("redact", help="(not implemented yet)")

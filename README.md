@@ -60,6 +60,7 @@ still want one of the above for `init` / `add` / `check`.
 ```bash
 looselips-guard init      # scaffold config, detect your agent, wire its hook
 looselips-guard add ZQXF VNTR Acct-99001122
+looselips-guard add "ZQXF,VNTR,ACME Corp,Acct-99001122"   # or one comma-separated list
 looselips-guard check     # confirm it's guarding you
 ```
 
