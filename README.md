@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="gitsafely" width="320">
+  <img src="assets/logo.svg" alt="looselips" width="320">
 </p>
 
 <p align="center">
@@ -26,13 +26,13 @@ git objects, and **`git add -A`** sweeping a live database into a public repo.
   "hooks": {
     "PreToolUse": [{
       "matcher": "Bash",
-      "hooks": [{ "type": "command", "command": "/path/to/gitsafely/gitsafely.py" }]
+      "hooks": [{ "type": "command", "command": "/path/to/looselips/looselips.py" }]
     }]
   }
 }
 ```
 
-Copy `.gitsafely.example.json` to `.gitsafely.json` in the project you want
+Copy `.looselips.example.json` to `.looselips.json` in the project you want
 guarded. No config file = no denylist = nothing blocked except oversized files
 being staged.
 
@@ -65,7 +65,7 @@ works there. Run `gitleaks` for those.
 
 Blocking hard gets a tool bypassed, and then it protects nothing. A real bug
 report may need to name the ticker that exposed the bug. The hook prints exactly
-what matched and where; rerun the command prefixed with `GITSAFELY_OK=1` to send
+what matched and where; rerun the command prefixed with `LOOSELIPS_OK=1` to send
 it anyway.
 
 ## Not covered
@@ -77,10 +77,10 @@ it anyway.
 
 ## Test
 
-`python3 test_gitsafely.py` — synthetic fixtures with the shapes of a real
+`python3 test_looselips.py` — synthetic fixtures with the shapes of a real
 incident (a ticker beside a currency amount, a balance line, a holdings table,
 an oversized SQLite backup). No real data ships here.
 
 ## Credits
 
-Built with [Reinvently](https://reinvently.com).
+Built by [Reinvently](https://reinvently.com).

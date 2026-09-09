@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""gitsafely - PreToolUse egress guard.
+"""looselips - PreToolUse egress guard.
 
 Reads a Claude Code PreToolUse hook payload on stdin. Exit 2 blocks the tool
 call and shows stderr to the agent. Anything else allows it.
 
 Scans outbound writes (gh issue/pr bodies, gh api mutations, git add/commit)
-against a denylist derived from the user's own data. See .gitsafely.json.
+against a denylist derived from the user's own data. See .looselips.json.
 """
 import csv
 import json
@@ -16,8 +16,8 @@ import sqlite3
 import subprocess
 import sys
 
-CONFIG_NAME = ".gitsafely.json"
-OVERRIDE = "GITSAFELY_OK=1"
+CONFIG_NAME = ".looselips.json"
+OVERRIDE = "LOOSELIPS_OK=1"
 DEFAULT_MAX_BYTES = 512_000
 
 
@@ -180,7 +180,7 @@ def main():
     findings = check(command, cwd, load_config(cwd))
     if not findings:
         return 0
-    print("gitsafely blocked this command - sensitive data would leave the machine:",
+    print("looselips blocked this command - sensitive data would leave the machine:",
           *[f"  - {f}" for f in findings],
           f"\nIf this is deliberate and correct, rerun it prefixed with {OVERRIDE}",
           sep="\n", file=sys.stderr)

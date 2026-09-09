@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic regression corpus. Shapes mirror the real incident; values do not.
 
-Run: python3 test_gitsafely.py
+Run: python3 test_looselips.py
 """
 import json
 import os
@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 
-import gitsafely
+import looselips
 
 # Ticker-like tokens with deliberate English-word collisions in the source.
 LEDGER = ["ZQXF", "VNTR", "ALL", "ON", "BRPL"]
@@ -33,17 +33,17 @@ CLEAN = [
 
 
 def setup(tmp):
-    with open(os.path.join(tmp, ".gitsafely.json"), "w") as f:
+    with open(os.path.join(tmp, ".looselips.json"), "w") as f:
         json.dump(CONFIG, f)
     with open(os.path.join(tmp, "holdings.csv"), "w") as f:
         f.write("symbol,qty\n" + "".join(f"{s},1\n" for s in LEDGER))
-    return gitsafely.load_config(tmp)
+    return looselips.load_config(tmp)
 
 
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         cfg = setup(tmp)
-        run = lambda cmd: gitsafely.check(cmd, tmp, cfg)
+        run = lambda cmd: looselips.check(cmd, tmp, cfg)
 
         body = os.path.join(tmp, "body.md")
         for i, text in enumerate(LEAKS):
@@ -56,7 +56,7 @@ def main():
 
         # override
         open(body, "w").write(LEAKS[0])
-        assert not run(f"GITSAFELY_OK=1 gh issue create --title t --body-file {body}")
+        assert not run(f"LOOSELIPS_OK=1 gh issue create --title t --body-file {body}")
 
         # unreadable payloads are blocked, not waved through
         assert run("gh issue create --title t --body-file -")
