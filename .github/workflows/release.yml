@@ -16,7 +16,9 @@ jobs:
           tag="${GITHUB_REF_NAME#v}"
           ver=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           [ "$tag" = "$ver" ] || { echo "tag $tag != pyproject $ver"; exit 1; }
-      - run: python test_looselips.py
+          npm=$(node -p "require('./packages/looselips-guard/package.json').version")
+          [ "$tag" = "$npm" ] || { echo "tag $tag != npm $npm"; exit 1; }
+      - run: python test_looselips_guard.py
 
   pypi:
     needs: test

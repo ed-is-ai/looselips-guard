@@ -1,16 +1,21 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="looselips" width="320">
+  <img src="assets/logo.svg" alt="looselips-guard" width="360">
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/hook-PreToolUse-2f81f7" alt="PreToolUse hook">
+  <img src="https://img.shields.io/badge/hook-PreToolUse-cf222e" alt="PreToolUse hook">
   <img src="https://img.shields.io/badge/python-3.8%2B-3776ab" alt="Python 3.8+">
   <img src="https://img.shields.io/badge/dependencies-none-2da44e" alt="No dependencies">
   <img src="https://img.shields.io/badge/secret%20rules-221-8250df" alt="221 secret rules">
   <img src="https://img.shields.io/badge/status-alpha-d29922" alt="Alpha">
-  <a href="docs/superpowers/specs/2026-09-09-looselips-design.md"><img src="https://img.shields.io/badge/spec-design-6e7781" alt="Design spec"></a>
 </p>
 
+Loose lips sinks shops. 
+
+Problem
+So you want to run agents and you want to run them unattended. Obviously you can sandbox, but if you want to do anything important, you need to give them access to the outside world: internet, git, your emails.  How do you stop the very real danger of it firing your personal information out when you don't want it to because the LLM doesn't know any better.
+
+What looselips-guard does
 Existing tools stop your secrets reaching the model.
 **This stops the agent publishing your data to the world.**
 
@@ -24,35 +29,56 @@ recognises. It covers the two routes git-object scanners miss entirely:
 
 ## Getting started
 
-Three steps, about two minutes. Claude Code works today; [other hosts](#hosts)
+Two steps, about two minutes. Claude Code works today; [other hosts](#hosts)
 are designed and not yet built.
 
-**1. Get the code.**
+**1. Install the plugin.** In Claude Code:
 
-```bash
-git clone https://github.com/reinvently/looselips.git ~/looselips
-python3 ~/looselips/test_looselips.py     # should print: ok
+```
+/plugin marketplace add ed-is-ai/looselips-guard
+/plugin install looselips-guard@ed-is-ai
 ```
 
-**2. Wire the hook.** In `.claude/settings.json`, project or global:
+That wires the `PreToolUse` hook for you. Needs `python3` on `PATH`.
+
+<details><summary>Or wire the hook by hand</summary>
+
+Get `looselips-guard` onto your machine, either:
+
+```bash
+npm install -g looselips-guard                       # needs python3 on PATH
+```
+
+or clone it:
+
+```bash
+git clone https://github.com/ed-is-ai/looselips-guard.git ~/looselips-guard
+python3 ~/looselips-guard/test_looselips_guard.py                 # should print: ok
+```
+
+Then in `.claude/settings.json`, project or global, point the hook at it
+(`looselips-guard` if installed via npm, the script path if cloned):
 
 ```jsonc
 {
   "hooks": {
     "PreToolUse": [{
       "matcher": "Bash",
-      "hooks": [{ "type": "command", "command": "/Users/you/looselips/looselips.py" }]
+      "hooks": [{ "type": "command", "command": "looselips-guard" }]
     }]
   }
 }
 ```
+</details>
 
-That alone blocks oversized files being staged and any credential the ported
+Either way, that alone blocks oversized files being staged and any credential the ported
 [gitleaks](https://github.com/gitleaks/gitleaks) rules recognise — no config
 needed.
 
-**3. Tell it what your data looks like.** Copy `.looselips.example.json` to
-`.looselips.json` in the project you want guarded:
+**2. Tell it what your data looks like.** Step 1 guards credentials and
+oversized files with no config. To also block *your own data* — the strings
+generic PII rules can't recognise — copy `.looselips-guard.example.json` to
+`.looselips-guard.json` in the project you want guarded:
 
 ```jsonc
 {
@@ -66,13 +92,18 @@ needed.
 ```
 
 Now the values in your own ledger cannot leave the machine by accident.
-`.looselips.json` is never committed.
+`.looselips-guard.json` is never committed.
+
+**When the data changes**, `sources` keep up on their own — the query, CSV or
+env file is re-read on every scan, so a ticker you bought this morning is
+already guarded. Only `values` (literals typed into the config) and `allow`
+need a hand edit.
 
 **Check it works:**
 
 ```bash
 echo '{"tool_input":{"command":"gh issue create --title t --body \"ZQXF 300 shares\""},"cwd":"'$PWD'"}' \
-  | python3 ~/looselips/looselips.py; echo "exit=$?"
+  | python3 ~/looselips-guard/looselips_guard.py; echo "exit=$?"
 ```
 
 Exit 2 with a message naming what matched means it's guarding you.
@@ -178,6 +209,11 @@ fire, and a guard that might not run is worse than no guard.
 
 ## Config
 
+All of this lives in **`.looselips-guard.json`** at the root of the project you are
+guarding — the working directory the command runs in. It is never committed.
+`.looselips-guard.example.json` is only a template to copy from; `.looselips-guard.list`
+(below) is one optional data source, not the config itself.
+
 The denylist is **generated from your own data**, not from generic PII regexes.
 Generic rules fail here, concretely: in the incident that motivated this tool
 the owner's own email authored 295 of 445 commits, so a "block emails" rule
@@ -189,8 +225,10 @@ What worked was deriving the list from the ledger itself, excluding the
 English-word collisions, and matching the rest on word boundaries — 27 leaking
 items found across 258 issues and 306 PRs, with zero false positives.
 
-- `sources` — `sqlite` (path + query), `csv` (path + column), `env` (path).
-- `values` — literal entries with no source.
+- `values` — literal entries, listed inline in the config.
+- `sources` — pull entries from a file instead, re-read on every scan:
+  `txt` (path, one value per line, `#` comments), `csv` (path + column),
+  `sqlite` (path + query), `env` (path, the value side of each `KEY=value`).
 - `allow` — collision list, for tickers that are also words (`ALL`, `ON`, `CAT`).
   Matching is case-sensitive with word boundaries, which removes most collisions
   before this list is needed.
@@ -217,7 +255,7 @@ report may need to name the ticker that exposed the bug. So the hook prints
 exactly what matched and where, and you re-run deliberately:
 
 ```bash
-LOOSELIPS_OK=1 gh issue create --title "…" --body-file issue.md
+LOOSELIPS_GUARD_OK=1 gh issue create --title "…" --body-file issue.md
 ```
 
 Every leak in the motivating incident was accidental. Making the deliberate case
@@ -234,7 +272,7 @@ all.
 So inbound guards secrets only, and redacts rather than blocks:
 
 ```
-cat .env      →     cat .env | looselips redact
+cat .env      →     cat .env | looselips-guard redact
 ```
 
 That works because a pre-tool hook can rewrite tool *input*. Its hard limit:
@@ -253,7 +291,7 @@ protection is best-effort by construction, and says so.
 ## Development
 
 ```bash
-python3 test_looselips.py              # synthetic fixtures, no real data
+python3 test_looselips_guard.py              # synthetic fixtures, no real data
 python3 scripts/port_gitleaks_rules.py # refresh the secret rules from upstream
 scripts/release.sh 0.2.0               # bump, tag, push; CI publishes
 ```
@@ -269,6 +307,6 @@ Built by the team at [Reinvently](https://reinvently.co.uk/about/).
 Secret detection rules are ported from **[gitleaks](https://github.com/gitleaks/gitleaks)**
 by **Zachary Rice**, used under the MIT Licence — see [NOTICE](NOTICE). gitleaks
 does the hard part: 221 maintained rules, keyword prefilters and entropy
-thresholds, refined over years of real-world false positives. looselips only
+thresholds, refined over years of real-world false positives. looselips-guard only
 translates them so they run in-process with no binary to install. For scanning
 git history, use gitleaks itself.

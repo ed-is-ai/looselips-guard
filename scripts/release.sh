@@ -8,7 +8,7 @@ version="${1:?usage: scripts/release.sh <version>}"
 [ -z "$(git status --porcelain)" ] || { echo "working tree is dirty"; exit 1; }
 git rev-parse -q --verify "refs/tags/v$version" >/dev/null && { echo "tag v$version exists"; exit 1; }
 
-python3 test_looselips.py
+python3 test_looselips_guard.py
 python3 - "$version" <<'PY'
 import re, sys
 v = sys.argv[1]
@@ -18,6 +18,8 @@ s, n = re.subn(r'^version = ".*"$', f'version = "{v}"', s, count=1, flags=re.M)
 assert n == 1, "version line not found in pyproject.toml"
 open(p, "w").write(s)
 PY
+
+( cd packages/looselips-guard && npm version "$version" --no-git-tag-version --allow-same-version >/dev/null )
 
 git commit -qam "Release v$version"
 git tag -a "v$version" -m "v$version"

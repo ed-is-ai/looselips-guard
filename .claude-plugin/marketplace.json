@@ -1,0 +1,11 @@
+{
+  "name": "ed-is-ai",
+  "owner": { "name": "Reinvently", "url": "https://reinvently.co.uk" },
+  "plugins": [
+    {
+      "name": "looselips-guard",
+      "source": "./",
+      "description": "PreToolUse egress guard: stops your coding agent publishing your data to the world."
+    }
+  ]
+}

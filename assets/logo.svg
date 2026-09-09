@@ -1,21 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96" width="320" height="96" role="img" aria-label="looselips">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 96" width="430" height="96" role="img" aria-label="looselips-guard">
   <style>
     .word { fill: #0d1117 }
-    @media (prefers-color-scheme: dark) { .word { fill: #e6edf3 } }
+    .bubble { fill: #fff; stroke: #d0d7de }
+    @media (prefers-color-scheme: dark) {
+      .word { fill: #e6edf3 }
+      .bubble { fill: #e6edf3; stroke: #30363d }
+    }
   </style>
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2f81f7"/>
-      <stop offset="1" stop-color="#1f6feb"/>
-    </linearGradient>
-  </defs>
   <!-- speech bubble, sealed shut -->
-  <path d="M20 18h56a10 10 0 0 1 10 10v32a10 10 0 0 1-10 10H46L28 84V70h-8a10 10 0 0 1-10-10V28a10 10 0 0 1 10-10z" fill="url(#g)"/>
-  <!-- padlock -->
-  <path d="M40 40v-6a8 8 0 0 1 16 0v6" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/>
-  <rect x="34" y="40" width="28" height="20" rx="4" fill="#fff"/>
-  <circle cx="48" cy="49" r="3" fill="#1f6feb"/>
-  <path d="M48 51v4" stroke="#1f6feb" stroke-width="3" stroke-linecap="round"/>
+  <path class="bubble" stroke-width="2" d="M20 18h56a10 10 0 0 1 10 10v32a10 10 0 0 1-10 10H46L28 84V70h-8a10 10 0 0 1-10-10V28a10 10 0 0 1 10-10z"/>
+  <!-- sealed red lips -->
+  <path d="M30 48q9-9 18-1 9-8 18 1-9 13-18 13-9 0-18-13z" fill="#cf222e"/>
+  <path d="M30 48q18 5 36 0" fill="none" stroke="#7d0a1b" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- guard: slash struck across the bubble -->
+  <path d="M4 50 L94 44" stroke="#0d1117" stroke-width="8" stroke-linecap="round"/>
   <!-- wordmark -->
-  <text x="104" y="58" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="34" font-weight="700" class="word">loose<tspan fill="#1f6feb">lips</tspan></text>
+  <text x="104" y="58" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="34" font-weight="700" class="word">loose<tspan fill="#cf222e">lips</tspan><tspan class="word">-guard</tspan></text>
 </svg>

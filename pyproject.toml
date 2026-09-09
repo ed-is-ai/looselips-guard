@@ -16,13 +16,13 @@ classifiers = [
   "Topic :: Security",
 ]
 
-# The command is `looselips`; only the PyPI distribution is `looselips-guard`,
-# because `looselips` is taken by an unrelated project.
+# `looselips` on PyPI is an unrelated project; this is `looselips-guard`
+# throughout. The importable module is `looselips_guard` (underscore).
 [project.scripts]
-looselips = "looselips:main"
+looselips-guard = "looselips_guard:main"
 
 [project.urls]
-Homepage = "https://github.com/reinvently/looselips"
+Homepage = "https://github.com/ed-is-ai/looselips-guard"
 
 [tool.setuptools]
-py-modules = ["looselips", "gitleaks_rules"]
+py-modules = ["looselips_guard", "gitleaks_rules"]

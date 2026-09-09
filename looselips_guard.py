@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""looselips - PreToolUse egress guard.
+"""looselips-guard - PreToolUse egress guard.
 
 Reads a Claude Code PreToolUse hook payload on stdin. Exit 2 blocks the tool
 call and shows stderr to the agent. Anything else allows it.
 
 Scans outbound writes (gh issue/pr bodies, gh api mutations, git add/commit)
-against a denylist derived from the user's own data. See .looselips.json.
+against a denylist derived from the user's own data. See .looselips-guard.json.
 """
 import csv
 import json
@@ -17,8 +17,8 @@ import sqlite3
 import subprocess
 import sys
 
-CONFIG_NAME = ".looselips.json"
-OVERRIDE = "LOOSELIPS_OK=1"
+CONFIG_NAME = ".looselips-guard.json"
+OVERRIDE = "LOOSELIPS_GUARD_OK=1"
 DEFAULT_MAX_BYTES = 512_000
 
 
@@ -47,6 +47,10 @@ def _source_values(src, cwd):
         with open(path) as f:
             return [l.split("=", 1)[1].strip().strip("'\"")
                     for l in f if "=" in l and not l.lstrip().startswith("#")]
+    if kind == "txt":
+        with open(path) as f:
+            return [l.strip() for l in f
+                    if l.strip() and not l.lstrip().startswith("#")]
     raise ValueError(f"unknown source type: {kind}")
 
 
@@ -232,12 +236,12 @@ def main():
     if len(sys.argv) > 1:
         sub = sys.argv[1]
         if sub in ("init", "redact"):
-            print(f"looselips {sub}: not implemented yet — see the design spec",
+            print(f"looselips-guard {sub}: not implemented yet — see the design spec",
                   file=sys.stderr)
             return 1
-        print(f"looselips: unknown command {sub!r}\n"
-              "usage: looselips            read a hook event on stdin\n"
-              "       looselips init       wire up a host and build a denylist",
+        print(f"looselips-guard: unknown command {sub!r}\n"
+              "usage: looselips-guard          read a hook event on stdin\n"
+              "       looselips-guard init     wire up a host and build a denylist",
               file=sys.stderr)
         return 1
     event = json.load(sys.stdin)
@@ -248,7 +252,7 @@ def main():
     findings = check(command, cwd, load_config(cwd))
     if not findings:
         return 0
-    print("looselips blocked this command - sensitive data would leave the machine:",
+    print("looselips-guard blocked this command - sensitive data would leave the machine:",
           *[f"  - {f}" for f in findings],
           f"\nIf this is deliberate and correct, rerun it prefixed with {OVERRIDE}",
           sep="\n", file=sys.stderr)

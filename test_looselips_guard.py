@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic regression corpus. Shapes mirror the real incident; values do not.
 
-Run: python3 test_looselips.py
+Run: python3 test_looselips_guard.py
 """
 import json
 import os
@@ -9,13 +9,14 @@ import subprocess
 import sys
 import tempfile
 
-import looselips
+import looselips_guard
 
 # Ticker-like tokens with deliberate English-word collisions in the source.
 LEDGER = ["ZQXF", "VNTR", "ALL", "ON", "BRPL"]
 ALLOW = ["ALL", "ON"]
 CONFIG = {"values": ["Acct-99001122"], "allow": ALLOW,
-          "sources": [{"type": "csv", "path": "holdings.csv", "column": "symbol"}]}
+          "sources": [{"type": "csv", "path": "holdings.csv", "column": "symbol"},
+                      {"type": "txt", "path": ".looselips-guard.list"}]}
 
 LEAKS = [
     "Currency resolution fails for ZQXF: 1,204 shares held at 812.40 GBP.",
@@ -33,17 +34,19 @@ CLEAN = [
 
 
 def setup(tmp):
-    with open(os.path.join(tmp, ".looselips.json"), "w") as f:
+    with open(os.path.join(tmp, ".looselips-guard.json"), "w") as f:
         json.dump(CONFIG, f)
     with open(os.path.join(tmp, "holdings.csv"), "w") as f:
-        f.write("symbol,qty\n" + "".join(f"{s},1\n" for s in LEDGER))
-    return looselips.load_config(tmp)
+        f.write("symbol,qty\n" + "".join(f"{s},1\n" for s in LEDGER[:-1]))
+    with open(os.path.join(tmp, ".looselips-guard.list"), "w") as f:
+        f.write("# holdings not in the ledger yet\n\n" + LEDGER[-1] + "\n")
+    return looselips_guard.load_config(tmp)
 
 
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         cfg = setup(tmp)
-        run = lambda cmd: looselips.check(cmd, tmp, cfg)
+        run = lambda cmd: looselips_guard.check(cmd, tmp, cfg)
 
         body = os.path.join(tmp, "body.md")
         for i, text in enumerate(LEAKS):
@@ -63,7 +66,7 @@ def main():
 
         # override
         open(body, "w").write(LEAKS[0])
-        assert not run(f"LOOSELIPS_OK=1 gh issue create --title t --body-file {body}")
+        assert not run(f"LOOSELIPS_GUARD_OK=1 gh issue create --title t --body-file {body}")
 
         # unreadable payloads are blocked, not waved through
         assert run("gh issue create --title t --body-file -")

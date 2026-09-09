@@ -1,2 +1,10 @@
 __pycache__/
-.looselips.json
+.looselips-guard.json
+.looselips-guard.list
+
+# copied in at publish time by packages/looselips-guard prepack
+/packages/looselips-guard/looselips_guard.py
+/packages/looselips-guard/gitleaks_rules.py
+
+# not published
+docs/superpowers/
