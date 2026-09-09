@@ -15,6 +15,7 @@ import looselips_guard
 LEDGER = ["ZQXF", "VNTR", "ALL", "ON", "BRPL"]
 ALLOW = ["ALL", "ON"]
 CONFIG = {"values": ["Acct-99001122"], "allow": ALLOW,
+          "patterns": [r"\bREF-\d{6}\b"],
           "sources": [{"type": "csv", "path": "holdings.csv", "column": "symbol"},
                       {"type": "txt", "path": ".looselips-guard.list"}]}
 
@@ -23,6 +24,7 @@ LEAKS = [
     "Balance line: cash 14,203.55 GBP across VNTR and BRPL positions.",
     "| symbol | qty |\n| BRPL | 300 |",
     "Reproduced on account Acct-99001122.",
+    "Trace attached under ticket REF-004417 for review.",   # matches a pattern
 ]
 CLEAN = [
     "Currency resolution fails for TICKER_A: 1,000 shares at 100.00 GBP.",
@@ -138,6 +140,20 @@ def main():
             h = run_cli("-h")
             assert h.returncode == 0 and "init" in h.stdout and "add" in h.stdout, h
             assert run_cli("init", "nope").returncode == 2  # argparse rejects bad host
+
+            # regex blocklist: --like derives, --regex stores, both land in config
+            run_cli("add", "--like", "Acct-99001122")
+            run_cli("add", "--regex", r"\bZONE-\d{2,4}\b")
+            assert run_cli("add", "--regex", "(oops").returncode == 1  # bad regex rejected
+            pats = json.load(open(os.path.join(proj, ".looselips-guard.json")))["patterns"]
+            assert pats == [r"\bAcct\-\d{8}\b", r"\bZONE-\d{2,4}\b"], pats
+            hit = looselips_guard.check(
+                'gh issue create --title t --body "see Acct-12345678 and ZONE-77"',
+                proj, looselips_guard.load_config(proj))
+            assert any("Acct" in f for f in hit) and any("ZONE" in f for f in hit), hit
+
+        # a pattern that will not compile is skipped, not fatal
+        assert len(looselips_guard.compiled_patterns({"patterns": [r"(nope", r"\bOK\b"]})) == 1
 
     print("ok")
 

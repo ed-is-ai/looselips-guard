@@ -61,6 +61,7 @@ still want one of the above for `init` / `add` / `check`.
 looselips-guard init      # scaffold config, detect your agent, wire its hook
 looselips-guard add ZQXF VNTR Acct-99001122
 looselips-guard add "ZQXF,VNTR,ACME Corp,Acct-99001122"   # or one comma-separated list
+looselips-guard add --like Acct-99001122                  # block the format: \bAcct-\d{8}\b
 looselips-guard check     # confirm it's guarding you
 ```
 
@@ -230,9 +231,16 @@ items found across 258 issues and 306 PRs, with zero false positives.
 - `sources` — pull entries from a file instead, re-read on every scan:
   `txt` (path, one value per line, `#` comments), `csv` (path + column),
   `sqlite` (path + query), `env` (path, the value side of each `KEY=value`).
+- `patterns` — regexes, matched raw (you write your own anchors), for when
+  you want a *format* rather than a list: `\bAcct-\d{8}\b`, an internal hostname
+  suffix. This is the one place generic-regex risk is yours to own — see the
+  warning above. `looselips-guard add --regex '<pattern>'` appends one;
+  `add --like 'Acct-99001122'` derives `\bAcct-\d{8}\b` from an example and
+  appends that. A pattern that won't compile is warned about on stderr and
+  skipped, never fatal.
 - `allow` — collision list, for tickers that are also words (`ALL`, `ON`, `CAT`).
   Matching is case-sensitive with word boundaries, which removes most collisions
-  before this list is needed.
+  before this list is needed. `allow` does not apply to `patterns`.
 - `max_added_file_bytes` — files larger than this cannot be staged (default 500 KB).
 
 Secrets are handled separately, by 221 rules ported from gitleaks, so there is

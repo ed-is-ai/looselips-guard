@@ -1,5 +1,6 @@
 {
   "values": ["Acct-99001122", "my.real@email.example"],
+  "patterns": ["\\bAcct-\\d{8}\\b", "\\b\\w+\\.corp\\.internal\\b"],
   "allow": ["T", "U", "AR", "API", "CAT", "ALL", "ON", "GO"],
   "sources": [
     {"type": "txt", "path": ".looselips-guard.list"},

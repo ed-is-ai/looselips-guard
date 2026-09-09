@@ -119,6 +119,19 @@ def scan(text, terms):
     return [t for t in terms if re.search(rf"(?<![\w-]){re.escape(t)}(?![\w-])", text)]
 
 
+def compiled_patterns(config):
+    """Regexes from config["patterns"], matched raw (you anchor your own). A
+    pattern that won't compile is warned about and skipped - one bad regex must
+    not take the whole guard down."""
+    out = []
+    for p in config.get("patterns", []):
+        try:
+            out.append(re.compile(p))
+        except re.error as e:
+            print(f"looselips-guard: ignoring bad pattern {p!r}: {e}", file=sys.stderr)
+    return out
+
+
 # --- command parsing ------------------------------------------------------
 
 BODY_FLAGS = {"--body", "-b", "--title", "-t", "--message", "-m", "--subject"}
@@ -185,17 +198,23 @@ def check(command, cwd, config):
     while argv and re.match(r"^\w+=", argv[0]):  # strip env-var prefixes
         argv.pop(0)
     findings = []
-    terms = None
+    terms = pats = None
     seen = set()
 
     def hits(text, where):
-        nonlocal terms
+        nonlocal terms, pats
         if terms is None:
             terms = denylist(config, cwd)
+            pats = compiled_patterns(config)
         for t in scan(text, terms):
             if t not in seen:                     # same value in body and command
                 seen.add(t)
                 findings.append(f"{where}: {t!r}")
+        for rx in pats:
+            key = f"pat:{rx.pattern}"
+            if key not in seen and rx.search(text):
+                seen.add(key)
+                findings.append(f"{where}: matches /{rx.pattern}/")
         for rule_id in secret_findings(text):
             if rule_id not in seen:
                 seen.add(rule_id)
@@ -238,6 +257,7 @@ def check(command, cwd, config):
 
 CONFIG_TEMPLATE = {
     "values": ["Acct-99001122"],
+    "patterns": [],
     "allow": ["ALL", "ON", "GO", "CAT"],
     "sources": [{"type": "txt", "path": ".looselips-guard.list"}],
     "max_added_file_bytes": DEFAULT_MAX_BYTES,
@@ -334,9 +354,47 @@ def cmd_init(names, use_home):
     return 0
 
 
-def cmd_add(values):
-    # each arg may itself be a comma-separated list: add "ZQXF,VNTR,ACME Corp"
+def regex_from_example(s):
+    """Turn a sample value into a regex: digit runs become \\d{n}, everything
+    else stays literal. 'Acct-99001122' -> r'\\bAcct\\-\\d{8}\\b'."""
+    parts = [rf"\d{{{len(c.group())}}}" if c.group().isdigit() else re.escape(c.group())
+             for c in re.finditer(r"\d+|\D+", s)]
+    return r"\b" + "".join(parts) + r"\b"
+
+
+def _add_patterns(pats):
+    cfg = os.path.join(os.getcwd(), CONFIG_NAME)
+    data = json.load(open(cfg)) if os.path.exists(cfg) else dict(CONFIG_TEMPLATE)
+    arr = data.setdefault("patterns", [])
+    added = [p for p in dict.fromkeys(pats) if p not in arr]
+    arr.extend(added)
+    with open(cfg, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    print(f"added to {CONFIG_NAME} patterns: {', '.join(added) or '(nothing new)'}")
+    return 0
+
+
+def cmd_add(values, as_regex=False, like=False):
+    values = [v.strip() for v in values if v.strip()]
+
+    if as_regex:                      # comma may be a quantifier \d{2,4}, don't split
+        for p in values:
+            try:
+                re.compile(p)
+            except re.error as e:
+                print(f"bad regex {p!r}: {e}", file=sys.stderr)
+                return 1
+        return _add_patterns(values)
+    if like:
+        pats = [regex_from_example(v) for v in values]
+        for src, p in zip(values, pats):
+            print(f"  {src!r} -> /{p}/")
+        return _add_patterns(pats)
+
+    # plain literals: each arg may be a comma list - add "ZQXF,VNTR,ACME Corp"
     values = [t.strip() for v in values for t in v.split(",") if t.strip()]
+
     here = os.getcwd()
     listfile = os.path.join(here, ".looselips-guard.list")
     existing = set()
@@ -386,9 +444,14 @@ def _parser():
     i.add_argument("--global", dest="use_home", action="store_true",
                    help="write the home-directory config, not the project one")
 
-    a = sub.add_parser("add", help="add strings to the blocklist (.looselips-guard.list)")
+    a = sub.add_parser("add", help="add terms to the blocklist")
     a.add_argument("value", nargs="+",
-                   help="literal string to block; args or a comma-separated list")
+                   help="term to block; args or a comma-separated list")
+    g = a.add_mutually_exclusive_group()
+    g.add_argument("--regex", action="store_true",
+                   help='args are regexes -> config "patterns" (you anchor your own)')
+    g.add_argument("--like", action="store_true",
+                   help="args are example values; derive a regex from each (digit runs -> \\d{n})")
 
     sub.add_parser("check", help="self-test the install")
     sub.add_parser("redact", help="(not implemented yet)")
@@ -401,7 +464,7 @@ def main():
         if args.cmd == "init":
             return cmd_init(args.host, args.use_home)
         if args.cmd == "add":
-            return cmd_add(args.value)
+            return cmd_add(args.value, args.regex, args.like)
         if args.cmd == "check":
             return cmd_check()
         if args.cmd == "redact":
