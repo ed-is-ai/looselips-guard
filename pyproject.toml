@@ -25,4 +25,4 @@ looselips = "looselips:main"
 Homepage = "https://github.com/reinvently/looselips"
 
 [tool.setuptools]
-py-modules = ["looselips"]
+py-modules = ["looselips", "gitleaks_rules"]
