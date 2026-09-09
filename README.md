@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/status-alpha-d29922" alt="Alpha">
 </p>
 
-<p align="center"><em>Loose lips sink shops.</em></p>
+<p align="center"><em>Loose lips sink shops.</em>&nbsp;❤️</p>
 
 You want to run agents unattended. Sure, you can sandbox them and run a local
 model — but to do anything useful you have to let them access the outside world: the
@@ -105,11 +105,20 @@ Two hosts need a hand because they have no shell-command hook:
 - **OpenClaw / OpenClaw 2** — in-process TS plugin.
   `cp integrations/openclaw/looselips-guard.plugin.ts ~/.openclaw/policies/`, then
   add `"~/.openclaw/policies/looselips-guard.plugin.ts"` to `plugins.load.paths`
-  in `~/.openclaw/openclaw.json`.
-- **DeepSeek Harness** — enable its Claude Code / Codex `hooks.json` bridge and
-  point it at [`hooks/codex-hooks.json`](hooks/codex-hooks.json). Unverified.
+  in `~/.openclaw/openclaw.json`. The plugin runs `looselips-guard` synchronously
+  and returns `{ block }` on exit 2 or on a spawn error, so a *crash* fails
+  closed; OpenClaw's `before_tool_call` sets no default handler timeout and its
+  policy for a hung handler is undocumented, so a true *hang* would stall the
+  turn rather than fail either way.
+- **DeepSeek Harness** — enable its Claude Code / Codex `hooks.json` bridge
+  ([`dsh-hooks-claude-code`](https://github.com/deepseek-ai/deepseek-harness)) and
+  point it at [`hooks/codex-hooks.json`](hooks/codex-hooks.json). Its pre-execute
+  waterfall honours exit 2; any other failure is "logged as non-blocking, action
+  proceeds" — fail-open, with no documented timeout. Unverified end to end.
 
-Every host is fail-open on a slow hook except Cursor and Hermes.
+Every host is fail-open on a slow hook except Cursor and Hermes. Claude Code and
+Codex give it a 600 s window (see [How it works](#how-it-works)); OpenClaw,
+DeepSeek, Copilot and opencode don't publish theirs.
 
 ---
 
@@ -166,7 +175,7 @@ no shell-command hook at all — and gets a small in-process plugin.
 | 221 rules ported from gitleaks | API keys, tokens, private keys | Credentials *do* have recognisable shapes |
 | A size limit on staged files | The 1.1 MB SQLite backup | One rule closes the entire git-object route |
 
-**Speed is a correctness requirement, not a nicety.** Most hosts are fail-open on
+**Warning** Most hosts are fail-open on
 timeout — Claude Code's own docs say not to count on a stalled hook as a gate
 ([hooks reference](https://code.claude.com/docs/en/hooks)) — and only Cursor and
 Hermes can be told to fail closed. A slow hook doesn't annoy you, it silently
@@ -182,19 +191,17 @@ in front of the secret rules.
 | Secret rules when something matches | ~1 ms |
 | Compiling all 221 rules, if we didn't prefilter | 19.8 ms |
 
-**In practice the timeout race isn't close.** Claude Code's default `PreToolUse`
+**In practice the timeout race isnt a thing** Claude Code's default `PreToolUse`
 timeout is **600 seconds** ([hooks reference](https://code.claude.com/docs/en/hooks));
-Codex's is the same ([Codex hooks](https://developers.openai.com/codex/hooks)). A
+Codex's is the same ([Codex hooks](https://developers.openai.com/codex/hooks)). Our
 21 ms hook against a ten-minute ceiling doesn't fail open by accident — it would
 have to *hang*: block forever on unreadable input, or catch a pathological regex.
-The design closes those specifically — no dependencies to hang in, lazy imports,
+And the code dealw with those specifically — no dependencies to hang in, lazy imports,
 `--body-file -` is blocked rather than read, and a bad `patterns` entry is
-skipped, not run. The residual fail-open risks are a genuinely stuck process and
-an adversary who can deliberately stall the hook; for those, only a fail-closed
-host (Cursor, Hermes) or network egress control helps, not a faster hook. You can
-also set a short explicit `timeout` in the Claude Code hook config — it won't
-make the hook fail closed, but a hung one then gets cancelled in seconds instead
-of stalling the session for ten minutes.
+skipped, not run. So we have warned you, but it's not likely to be a thing on your agent.
+
+Having said that, a fail-closed host (Cursor, Hermes) guarantees the hook blocks. 
+So well done you, if you have already thought about this. You are a hero
 
 ---
 
@@ -222,9 +229,8 @@ Two things worth knowing before you rely on this:
 - **Every command-hook host is fail-open on timeout** except Hermes and Cursor,
   which honour `fail_closed` / `failClosed` on the pre-execution hook. The window
   is wide though — Claude Code and Codex default to a 600 s hook timeout, so a
-  21 ms hook only fails open if it truly hangs (see [How it works](#how-it-works)).
-  Copilot's and opencode's timeout budgets we haven't pinned down; verify against
-  their docs if it matters to you.
+  21 ms hook only fails open if it truly hangs (see
+  [How it works](#how-it-works), and the per-host notes above).
 - **opencode does not intercept subagent tool calls**
   ([open issue](https://github.com/anomalyco/opencode/issues/5894)), so a
   delegated `gh` call bypasses the guard there. Not ours to fix, but yours to
