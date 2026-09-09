@@ -52,8 +52,14 @@ alias looselips-guard='python3 ~/looselips-guard/looselips_guard.py'   # so the 
 ```
 
 It's one dependency-free Python file either way. In Claude Code,
-`/plugin install looselips-guard@ed-is-ai` also wires the Claude hook — but you
-still want one of the above for `init` / `add` / `check`.
+
+```
+/plugin marketplace add ed-is-ai/looselips-guard
+/plugin install looselips-guard@reinvently
+```
+
+also wires the Claude hook — but you still want one of the above for
+`init` / `add` / `check`.
 
 **2. Wire it and describe your data**, from the project you want guarded:
 
@@ -88,7 +94,7 @@ the one thing worth knowing:
 
 | `host` | `init` wires | Worth knowing |
 |---|---|---|
-| `claude`  | `.claude/settings.json` | or `/plugin install looselips-guard@ed-is-ai` in Claude Code |
+| `claude`  | `.claude/settings.json` | or `/plugin install looselips-guard@reinvently` in Claude Code |
 | `codex`   | `~/.codex/hooks.json` | same event shape as Claude, `exit 2` blocks |
 | `copilot` | `.github/hooks/looselips-guard.json` | matcher `bash\|shell`; known bugs, not ours — plugin hooks don't always fire ([#2540](https://github.com/github/copilot-cli/issues/2540)), subagents ungated ([#2392](https://github.com/github/copilot-cli/issues/2392)) |
 | `cursor`  | `~/.cursor/hooks.json` | `failClosed: true` — blocks on a slow hook instead of failing open |
