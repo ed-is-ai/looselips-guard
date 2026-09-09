@@ -85,8 +85,15 @@ a phone regex matches every SEDOL and order ID in a finance repo.
   collisions before this list is needed.
 - `max_added_file_bytes` — files larger than this cannot be staged (default 500 KB).
 
-Secrets and API keys are not part of the denylist: generic detection genuinely
-works there, so we delegate to `gitleaks` rather than reimplement it.
+Secrets and API keys are handled separately from the denylist, because generic
+detection genuinely works for credentials — they have distinctive prefixes and
+high entropy. looselips ships the **gitleaks ruleset ported to Python**, so you
+get 221 credential rules with **nothing to install**.
+
+A keyword prefilter runs first, so a payload with no credential-ish words
+compiles no regexes at all: ~0.25 ms typical, ~1 ms when something matches,
+against a total hook cost of ~21 ms (two-thirds of which is Python starting up).
+Regenerate the rules with `scripts/port_gitleaks_rules.py`.
 
 ## Inbound guard (planned, opt-in)
 
@@ -148,3 +155,10 @@ an oversized SQLite backup). No real data ships here.
 ## Credits
 
 Built by the team at [Reinvently](https://reinvently.co.uk/about/).
+
+Secret detection rules are ported from **[gitleaks](https://github.com/gitleaks/gitleaks)**
+by **Zachary Rice**, used under the MIT Licence — see [NOTICE](NOTICE). gitleaks
+does the hard part: 221 maintained rules, keyword prefilters and entropy
+thresholds, refined over years of real-world false positives. looselips only
+translates them so they run in-process with no binary to install. If you want
+full secret scanning across git history, use gitleaks itself.

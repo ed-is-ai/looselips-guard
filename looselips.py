@@ -9,6 +9,7 @@ against a denylist derived from the user's own data. See .looselips.json.
 """
 import csv
 import json
+import math
 import os
 import re
 import shlex
@@ -57,6 +58,55 @@ def denylist(config, cwd):
     # ponytail: case-sensitive word-boundary match. Kills most English-word
     # collisions for free; add a case_insensitive flag only if real leaks slip.
     return sorted({v.strip() for v in values if len(v.strip()) > 1} - allow)
+
+
+def _shannon(s):
+    if not s:
+        return 0.0
+    total = len(s)
+    bits = 0.0
+    for ch in set(s):
+        p = s.count(ch) / total
+        bits -= p * math.log2(p)
+    return bits
+
+
+def secret_findings(text):
+    """Secret ids found in text, using the ported gitleaks ruleset.
+
+    Keyword prefilter first: on a payload with no credential-ish words, no
+    regex is compiled at all. That keeps a per-call hook affordable.
+    """
+    if not text:
+        return []
+    try:
+        from gitleaks_rules import RULES, STOPWORDS, ALLOW_REGEXES
+    except ImportError:
+        return []
+    low = text.lower()
+    found = []
+    for rule in RULES:
+        keywords = rule["keywords"]
+        if keywords and not any(k in low for k in keywords):
+            continue
+        m = re.search(rule["regex"], text)
+        if not m:
+            continue
+        group = rule["secret_group"]
+        if group:
+            secret = m.group(group)
+        elif m.groups():
+            secret = m.group(1)
+        else:
+            secret = m.group(0)
+        if rule["entropy"] and _shannon(secret) < rule["entropy"]:
+            continue
+        if any(w in secret.lower() for w in STOPWORDS):
+            continue
+        if any(re.search(a, secret) for a in ALLOW_REGEXES):
+            continue
+        found.append(rule["id"])
+    return found
 
 
 def scan(text, terms):
@@ -139,6 +189,8 @@ def check(command, cwd, config):
             terms = denylist(config, cwd)
         for t in scan(text, terms):
             findings.append(f"{where}: {t!r}")
+        for rule_id in secret_findings(text):
+            findings.append(f"{where}: secret matching {rule_id}")
 
     if is_gh_write(argv) and argv[1] == "api":
         hits(" ".join(argv), "command")

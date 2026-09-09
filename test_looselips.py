@@ -54,6 +54,13 @@ def main():
             open(body, "w").write(text)
             assert not run(f"gh issue create --title t --body-file {body}"), f"false positive {i}"
 
+        # ported gitleaks rules: credentials are caught without the binary
+        open(body, "w").write("Deploy fails with AKIAIOSFODNN7EXAMPLE in the env.")
+        f = run(f"gh issue create --title t --body-file {body}")
+        assert any("aws-access-token" in x for x in f), f
+        open(body, "w").write("Deploy fails, see the runbook for the key name.")
+        assert not run(f"gh issue create --title t --body-file {body}"), "secret false positive"
+
         # override
         open(body, "w").write(LEAKS[0])
         assert not run(f"LOOSELIPS_OK=1 gh issue create --title t --body-file {body}")
