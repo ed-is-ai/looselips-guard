@@ -13,20 +13,28 @@
   <img src="https://img.shields.io/badge/status-alpha-d29922" alt="Alpha">
 </p>
 
-## Loose lips sinks shops. 
+<p align="center"><em>Loose lips sink shops.</em></p>
 
-## Problem
-So you want to run agents and you want to run them unattended. Obviously you can sandbox, run local LLMs, but if you want to do anything important, you need to give them access to the outside world: internet, git, your emails.  How do you stop the very real danger of it firing your personal information out when you don't want it to because the LLM doesn't know any better.
+You want to run agents unattended. Sure, you can sandbox them and run a local
+model — but to do anything useful you have to hand them the outside world: the
+internet, git, your email. And nothing there stops an agent firing your personal
+data into a public issue when it shouldn't, because the model doesn't know any
+better.
 
-What looselips-guard does
-Existing tools stop your secrets reaching the model.
-**This stops the agent publishing your data to the world.**
+Existing tools stop your secrets reaching the model. **looselips-guard stops the
+agent publishing your data to the world.** It blocks a command *before it runs*
+when what's leaving the machine has something in it that shouldn't go: a banned
+string from your denylist, a credential, or a suspiciously big file that's
+probably a database dump. All three run in the one hook, in a single pass over
+the payload, before the command executes — the credential check is
+[gitleaks](https://github.com/gitleaks/gitleaks)' 221 secret-detection rules
+ported to run in-process, not a separate scanner you install or invoke.
 
-It blocks a command *before it runs* when the payload leaving your machine
-contains your own data — the values you told it about, or a credential it
-recognises. It covers the two routes git-object scanners miss entirely:
-**issue and PR bodies**, which never become git objects at all, and
-**`git add -A`** sweeping a live database onto a public branch.
+It covers the two routes a git-history scanner misses completely:
+
+- **issue and PR bodies** — they never become git objects, so a scanner never
+  sees them
+- **`git add -A`** quietly sweeping a live database onto a public branch
 
 ---
 
