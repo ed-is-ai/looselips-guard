@@ -295,10 +295,7 @@ def _wire_json(path, host):
     return "wired"
 
 
-def cmd_init(args):
-    use_home = "--global" in args
-    names = [a for a in args if not a.startswith("-")]
-
+def cmd_init(names, use_home):
     cfg = os.path.join(os.getcwd(), CONFIG_NAME)
     if os.path.exists(cfg):
         print(f"{CONFIG_NAME} already exists, left as is")
@@ -330,12 +327,8 @@ def cmd_init(args):
     return 0
 
 
-def cmd_add(args):
-    values = [a.strip() for a in args if not a.startswith("-") and a.strip()]
-    if not values:
-        print("usage: looselips-guard add VALUE [VALUE ...]   "
-              "(appends to .looselips-guard.list)", file=sys.stderr)
-        return 1
+def cmd_add(values):
+    values = [v.strip() for v in values if v.strip()]
     here = os.getcwd()
     listfile = os.path.join(here, ".looselips-guard.list")
     existing = set()
@@ -358,7 +351,7 @@ def cmd_add(args):
     return 0
 
 
-def cmd_check(args):
+def cmd_check():
     cwd = os.getcwd()
     probe = 'gh issue create --title t --body "deploy fails with AKIAIOSFODNN7EXAMPLE"'
     findings = check(probe, cwd, load_config(cwd))
@@ -370,29 +363,51 @@ def cmd_check(args):
     return 1
 
 
+def _parser():
+    import argparse
+    p = argparse.ArgumentParser(
+        prog="looselips-guard",
+        description="Stop your coding agent publishing your data to the world. "
+                    "With no subcommand, reads a PreToolUse hook event on stdin.",
+        epilog="docs: https://github.com/ed-is-ai/looselips-guard")
+    sub = p.add_subparsers(dest="cmd")
+
+    i = sub.add_parser("init", help="scaffold config and wire the hook into a host")
+    i.add_argument("host", nargs="*", choices=list(HOSTS),
+                   help="host(s) to wire; omit to auto-detect")
+    i.add_argument("--global", dest="use_home", action="store_true",
+                   help="write the home-directory config, not the project one")
+
+    a = sub.add_parser("add", help="add strings to the blocklist (.looselips-guard.list)")
+    a.add_argument("value", nargs="+", help="literal string to block")
+
+    sub.add_parser("check", help="self-test the install")
+    sub.add_parser("redact", help="(not implemented yet)")
+    return p
+
+
 def main():
     if len(sys.argv) > 1:
-        sub, rest = sys.argv[1], sys.argv[2:]
-        if sub == "init":
-            return cmd_init(rest)
-        if sub == "add":
-            return cmd_add(rest)
-        if sub == "check":
-            return cmd_check(rest)
-        if sub == "redact":
+        args = _parser().parse_args()
+        if args.cmd == "init":
+            return cmd_init(args.host, args.use_home)
+        if args.cmd == "add":
+            return cmd_add(args.value)
+        if args.cmd == "check":
+            return cmd_check()
+        if args.cmd == "redact":
             print("looselips-guard redact: not implemented yet - see the design spec",
                   file=sys.stderr)
             return 1
-        print(f"looselips-guard: unknown command {sub!r}\n"
-              "usage:\n"
-              "  looselips-guard                        read a hook event on stdin\n"
-              "  looselips-guard init [--global] [host] scaffold config, wire the hook\n"
-              "                                        host: " + "|".join(HOSTS) + "\n"
-              "  looselips-guard add VALUE [VALUE ...]  add strings to the blocklist\n"
-              "  looselips-guard check                  self-test the install",
-              file=sys.stderr)
-        return 1
-    event = json.load(sys.stdin)
+        _parser().print_help()
+        return 0
+    if sys.stdin.isatty():           # a person ran it with no args and no pipe
+        _parser().print_help()
+        return 0
+    try:
+        event = json.load(sys.stdin)
+    except (json.JSONDecodeError, ValueError):
+        return 0                      # unparseable event: nothing to scan, allow
     # tool_input.command: Claude Code, Codex, Copilot, Hermes. command: Cursor's
     # beforeShellExecution puts it top-level. cwd is top-level everywhere.
     command = event.get("tool_input", {}).get("command") or event.get("command", "")

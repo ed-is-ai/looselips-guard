@@ -40,206 +40,56 @@ It covers the two routes a git-history scanner misses completely:
 
 ## Getting started
 
-Two steps, about two minutes. Claude Code, [Codex](#codex),
-[GitHub Copilot](#github-copilot), [Cursor](#cursor) and
-[Hermes Agent](#hermes-agent) work today, [OpenClaw](#openclaw) via a bundled
-plugin; [other hosts](#hosts) are designed and not yet built.
-
-**1. Install the plugin.** In Claude Code:
-
-```
-/plugin marketplace add ed-is-ai/looselips-guard
-/plugin install looselips-guard@ed-is-ai
-```
-
-That wires the `PreToolUse` hook for you. Needs `python3` on `PATH`.
-
-<details><summary>Or wire the hook by hand (any host)</summary>
-
-Get `looselips-guard` onto your machine:
+Three commands, about two minutes.
 
 ```bash
-npm install -g looselips-guard                       # needs python3 on PATH
+npm install -g looselips-guard     # needs python3 on PATH
+looselips-guard init               # scaffold config, detect your agent, wire its hook
+looselips-guard check              # confirm it's guarding you
 ```
 
-Then `looselips-guard init <host>` merges the hook into that host's config file
-for you — `claude`, `codex`, `copilot`, `cursor` (JSON, merged in place) or
-`hermes` (prints the YAML to paste). Add `--global` for the home-directory
-config instead of the project one. The rest of this block is what it writes, if
-you would rather do it yourself.
-
-Or clone instead of npm:
+`init` writes `.looselips-guard.json`, works out which host you run from
+`~/.claude`, `~/.codex`, `~/.cursor`, `~/.hermes` or `.github/`, and merges the
+hook into that host's own config file — in place, leaving your other hooks
+alone. Then tell it what your data looks like:
 
 ```bash
-git clone https://github.com/ed-is-ai/looselips-guard.git ~/looselips-guard
-python3 ~/looselips-guard/test_looselips_guard.py                 # should print: ok
+looselips-guard add ZQXF VNTR Acct-99001122
 ```
 
-Then in `.claude/settings.json`, project or global, point the hook at it
-(`looselips-guard` if installed via npm, the script path if cloned):
-
-```jsonc
-{
-  "hooks": {
-    "PreToolUse": [{
-      "matcher": "Bash",
-      "hooks": [{ "type": "command", "command": "looselips-guard" }]
-    }]
-  }
-}
-```
-</details>
-
-<details id="codex"><summary>Codex</summary>
-
-Codex hands a `PreToolUse` hook the same JSON Claude Code does — `tool_input.command`,
-`cwd` — and blocks on `exit 2` with the reason on stderr, so the same script runs
-unchanged. Get it on PATH (`npm install -g looselips-guard`, needs `python3`), then
-merge [`hooks/codex-hooks.json`](hooks/codex-hooks.json) into `~/.codex/hooks.json`
-(global) or `<repo>/.codex/hooks.json` (one project):
-
-```jsonc
-{
-  "hooks": {
-    "PreToolUse": [{
-      "matcher": "Bash",
-      "hooks": [{ "type": "command", "command": "looselips-guard" }]
-    }]
-  }
-}
-```
-</details>
-
-<details id="github-copilot"><summary>GitHub Copilot</summary>
-
-Register under the **PascalCase** `PreToolUse` key — that selects Copilot's
-VS Code-compatible payload (`tool_input.command`, `cwd`), which is what the script
-reads. Copilot's tool is named `bash`, so the matcher is `bash|shell`, not `Bash`.
-`exit 2` blocks. Get it on PATH as above, then drop
-[`hooks/copilot-hooks.json`](hooks/copilot-hooks.json) at
-`.github/hooks/looselips-guard.json` (one repo) or `~/.copilot/hooks/looselips-guard.json`
-(global):
-
-```json
-{
-  "version": 1,
-  "hooks": {
-    "PreToolUse": [
-      { "type": "command", "bash": "looselips-guard", "matcher": "bash|shell" }
-    ]
-  }
-}
-```
-
-Copilot fails **closed** on any non-zero exit other than 2 (`hook errored`) and
-fails open only on timeout. Two known Copilot bugs, not ours: plugin-defined hooks
-don't always fire ([copilot-cli#2540](https://github.com/github/copilot-cli/issues/2540)),
-and subagent tool calls aren't gated ([#2392](https://github.com/github/copilot-cli/issues/2392)).
-</details>
-
-<details id="hermes-agent"><summary>Hermes Agent</summary>
-
-Hermes runs shell hooks from `config.yaml` and pipes Claude Code-shaped JSON to
-stdin (`tool_input.command`, `cwd`), reading `exit 2` as a block — so the same
-script runs unchanged. Its shell tool is `terminal`, not `Bash`. Get it on PATH
-(`npm install -g looselips-guard`, needs `python3`), then merge
-[`hooks/hermes-hooks.yaml`](hooks/hermes-hooks.yaml) into `~/.hermes/config.yaml`
-(global) or `<repo>/.hermes/config.yaml`:
-
-```yaml
-hooks:
-  pre_tool_call:
-    - matcher: "terminal"
-      command: "looselips-guard"
-      timeout: 5
-      fail_closed: true
-```
-
-`fail_closed: true` is honoured only by `pre_tool_call`, and only Hermes offers
-it — every other command-hook host waves the command through if the hook is slow.
-</details>
-
-<details id="openclaw"><summary>OpenClaw (and OpenClaw 2)</summary>
-
-OpenClaw has no shell-command tool hook — tool interception is an in-process
-TypeScript plugin — so ship the shim in
-[`integrations/openclaw/looselips-guard.plugin.ts`](integrations/openclaw/looselips-guard.plugin.ts),
-which hands the `exec` command to the same `looselips-guard` binary:
-
-```bash
-npm install -g looselips-guard        # needs python3 on PATH
-mkdir -p ~/.openclaw/policies
-cp integrations/openclaw/looselips-guard.plugin.ts ~/.openclaw/policies/
-```
-
-Then in `~/.openclaw/openclaw.json`:
-
-```json5
-{ plugins: { load: { paths: ["~/.openclaw/policies/looselips-guard.plugin.ts"] } } }
-```
-
-Same file for OpenClaw 2 (v2026.8.1+) — the plugin API is unchanged. The shim
-fails closed if the binary can't run; whether OpenClaw itself fails closed when a
-`before_tool_call` handler times out is not documented, so don't rely on it.
-</details>
-
-<details id="cursor"><summary>Cursor</summary>
-
-Cursor's `beforeShellExecution` hook sends `{ command, cwd }` — `command` is
-top-level, not under `tool_input`, which the script now also reads — and takes
-`exit 2` as a block. Get it on PATH (`npm install -g looselips-guard`, needs
-`python3`), then merge [`hooks/cursor-hooks.json`](hooks/cursor-hooks.json) into
-`~/.cursor/hooks.json` (global) or `.cursor/hooks.json` (one project):
-
-```json
-{
-  "version": 1,
-  "hooks": {
-    "beforeShellExecution": [
-      { "command": "looselips-guard", "failClosed": true }
-    ]
-  }
-}
-```
-
-`failClosed: true` is honoured here too — Cursor and Hermes are the two hosts that
-can block on a slow hook rather than wave the command through.
-</details>
-
-<details id="deepseek-harness"><summary>DeepSeek Harness</summary>
-
-DeepSeek Harness ships a Claude Code / Codex `hooks.json` bridge (off by default).
-Enable it, then point it at [`hooks/codex-hooks.json`](hooks/codex-hooks.json) —
-the Codex wiring above works as-is through the bridge. Unverified: we haven't run
-it end to end.
-</details>
-
-Either way, that alone blocks oversized files being staged and any credential the ported
-[gitleaks](https://github.com/gitleaks/gitleaks) rules recognise — no config
-needed.
-
-**2. Tell it what your data looks like.** Step 1 guards credentials and
-oversized files with no config. To also block *your own data* — the strings
-generic PII rules can't recognise — run the setup CLI in the project you want
-guarded:
-
-```bash
-looselips-guard init            # scaffolds .looselips-guard.json, detects and wires your host
-looselips-guard add ZQXF VNTR Acct-99001122   # add strings to the blocklist
-looselips-guard check           # self-test the install
-```
-
-`init` also takes an explicit target — `looselips-guard init --global cursor` —
-when detection can't see your host or you want the global config file. `add`
-appends to `.looselips-guard.list`; for anything that changes often, point a
-`source` at it instead (see [Config](#config)) and it is re-read on every scan.
+Even before any `add`, the hook already blocks oversized files being staged and
+any credential the ported [gitleaks](https://github.com/gitleaks/gitleaks) rules
+recognise. `add` extends it with your own strings — tickers, account ids,
+balances — that generic PII rules can't spot. For data that changes often, point
+a `source` at it instead (see [Config](#config)) and it is re-read on every scan.
 `.looselips-guard.json` and `.looselips-guard.list` are never committed;
 [`.looselips-blocklist-example.json`](.looselips-blocklist-example.json) is the
 template `init` copies from.
 
-**When the data changes**, `sources` keep up on their own — the query, CSV or
-env file is re-read on every scan, so a ticker you bought this morning is
-already guarded. Only `values` and the `add` list are hand-maintained.
+### Per host
+
+`looselips-guard init <host>` when detection misses; `--global` writes the
+home-directory config instead of the project one. What `init` does per host, and
+the one thing worth knowing:
+
+| `host` | `init` wires | Worth knowing |
+|---|---|---|
+| `claude`  | `.claude/settings.json` | or `/plugin install looselips-guard@ed-is-ai` in Claude Code |
+| `codex`   | `~/.codex/hooks.json` | same event shape as Claude, `exit 2` blocks |
+| `copilot` | `.github/hooks/looselips-guard.json` | matcher `bash\|shell`; known bugs, not ours — plugin hooks don't always fire ([#2540](https://github.com/github/copilot-cli/issues/2540)), subagents ungated ([#2392](https://github.com/github/copilot-cli/issues/2392)) |
+| `cursor`  | `~/.cursor/hooks.json` | `failClosed: true` — blocks on a slow hook instead of failing open |
+| `hermes`  | prints YAML for `~/.hermes/config.yaml` | shell tool is `terminal`; `fail_closed: true`, like Cursor |
+
+Two hosts need a hand because they have no shell-command hook:
+
+- **OpenClaw / OpenClaw 2** — in-process TS plugin.
+  `cp integrations/openclaw/looselips-guard.plugin.ts ~/.openclaw/policies/`, then
+  add `"~/.openclaw/policies/looselips-guard.plugin.ts"` to `plugins.load.paths`
+  in `~/.openclaw/openclaw.json`.
+- **DeepSeek Harness** — enable its Claude Code / Codex `hooks.json` bridge and
+  point it at [`hooks/codex-hooks.json`](hooks/codex-hooks.json). Unverified.
+
+Every host is fail-open on a slow hook except Cursor and Hermes.
 
 ---
 
@@ -317,15 +167,18 @@ secret rules.
 The matcher is identical everywhere. What differs is how each host hands us the
 command and how we say no.
 
+Wiring for each is in [Getting started › Per host](#per-host); `looselips-guard
+init` does it for you.
+
 | Host | Integration | Status |
 |---|---|---|
 | Claude Code | `PreToolUse`, exit 2 | **works today** |
-| Codex | `PreToolUse`, exit 2 | **works today** — same script, [wiring](#codex) |
-| GitHub Copilot | `PreToolUse` (PascalCase), exit 2 | **works today** — same script, [wiring](#github-copilot) |
-| Hermes Agent | `pre_tool_call` shell hook, exit 2 | **works today** — same script, [wiring](#hermes-agent) |
-| OpenClaw / OpenClaw 2 | `before_tool_call` plugin, `{ block }` | **works today** — [bundled plugin](#openclaw) |
-| Cursor | `beforeShellExecution`, exit 2 | **works today** — same script, [wiring](#cursor) |
-| DeepSeek Harness | Claude Code / Codex hook bridge | works via bridge, [wiring](#deepseek-harness) — unverified |
+| Codex | `PreToolUse`, exit 2 | **works today** — same script |
+| GitHub Copilot | `PreToolUse` (PascalCase), exit 2 | **works today** — same script |
+| Hermes Agent | `pre_tool_call` shell hook, exit 2 | **works today** — same script |
+| Cursor | `beforeShellExecution`, exit 2 | **works today** — same script |
+| OpenClaw / OpenClaw 2 | `before_tool_call` plugin, `{ block }` | **works today** — bundled plugin |
+| DeepSeek Harness | Claude Code / Codex hook bridge | works via bridge — unverified |
 | opencode | `tool.execute.before`, throw | designed |
 
 Two things worth knowing before you rely on this:

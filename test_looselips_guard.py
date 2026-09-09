@@ -134,6 +134,9 @@ def main():
             run_cli("add", "ZQXF", "ZQXF", "VNTR")
             lst = open(os.path.join(proj, ".looselips-guard.list")).read().split()
             assert lst == ["ZQXF", "VNTR"], lst
+            h = run_cli("-h")
+            assert h.returncode == 0 and "init" in h.stdout and "add" in h.stdout, h
+            assert run_cli("init", "nope").returncode == 2  # argparse rejects bad host
 
     print("ok")
 
