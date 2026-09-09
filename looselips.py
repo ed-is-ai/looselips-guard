@@ -182,15 +182,20 @@ def check(command, cwd, config):
         argv.pop(0)
     findings = []
     terms = None
+    seen = set()
 
     def hits(text, where):
         nonlocal terms
         if terms is None:
             terms = denylist(config, cwd)
         for t in scan(text, terms):
-            findings.append(f"{where}: {t!r}")
+            if t not in seen:                     # same value in body and command
+                seen.add(t)
+                findings.append(f"{where}: {t!r}")
         for rule_id in secret_findings(text):
-            findings.append(f"{where}: secret matching {rule_id}")
+            if rule_id not in seen:
+                seen.add(rule_id)
+                findings.append(f"{where}: secret matching {rule_id}")
 
     if is_gh_write(argv) and argv[1] == "api":
         hits(" ".join(argv), "command")
