@@ -40,22 +40,34 @@ It covers the two routes a git-history scanner misses completely:
 
 ## Getting started
 
-Three commands, about two minutes.
+**1. Get `looselips-guard` on your machine.** One of:
 
 ```bash
-npm install -g looselips-guard     # needs python3 on PATH
-looselips-guard init               # scaffold config, detect your agent, wire its hook
-looselips-guard check              # confirm it's guarding you
+npm install -g looselips-guard      # puts `looselips-guard` on PATH; needs python3
 ```
 
-`init` writes `.looselips-guard.json`, works out which host you run from
-`~/.claude`, `~/.codex`, `~/.cursor`, `~/.hermes` or `.github/`, and merges the
-hook into that host's own config file — in place, leaving your other hooks
-alone. Then tell it what your data looks like:
+```bash
+git clone https://github.com/ed-is-ai/looselips-guard.git ~/looselips-guard
+alias looselips-guard='python3 ~/looselips-guard/looselips_guard.py'   # so the commands below work as written
+```
+
+It's one dependency-free Python file either way. In Claude Code,
+`/plugin install looselips-guard@ed-is-ai` also wires the Claude hook — but you
+still want one of the above for `init` / `add` / `check`.
+
+**2. Wire it and describe your data**, from the project you want guarded:
 
 ```bash
+looselips-guard init      # scaffold config, detect your agent, wire its hook
 looselips-guard add ZQXF VNTR Acct-99001122
+looselips-guard check     # confirm it's guarding you
 ```
+
+`init` bakes the hook command in the form you invoked it — the `looselips-guard`
+bin if you npm-installed, the script's own path if you cloned — so it keeps
+working. It also writes `.looselips-guard.json`, detects your host from
+`~/.claude`, `~/.codex`, `~/.cursor`, `~/.hermes` or `.github/`, and merges the
+hook into that host's config file in place, leaving your other hooks alone.
 
 Even before any `add`, the hook already blocks oversized files being staged and
 any credential the ported [gitleaks](https://github.com/gitleaks/gitleaks) rules
@@ -173,10 +185,10 @@ init` does it for you.
 | Host | Integration | Status |
 |---|---|---|
 | Claude Code | `PreToolUse`, exit 2 | **works today** |
-| Codex | `PreToolUse`, exit 2 | **works today** — same script |
-| GitHub Copilot | `PreToolUse` (PascalCase), exit 2 | **works today** — same script |
-| Hermes Agent | `pre_tool_call` shell hook, exit 2 | **works today** — same script |
-| Cursor | `beforeShellExecution`, exit 2 | **works today** — same script |
+| Codex | `PreToolUse`, exit 2 | **works today** |
+| GitHub Copilot | `PreToolUse` (PascalCase), exit 2 | **works today** |
+| Hermes Agent | `pre_tool_call` shell hook, exit 2 | **works today** |
+| Cursor | `beforeShellExecution`, exit 2 | **works today**  |
 | OpenClaw / OpenClaw 2 | `before_tool_call` plugin, `{ block }` | **works today** — bundled plugin |
 | DeepSeek Harness | Claude Code / Codex hook bridge | works via bridge — unverified |
 | opencode | `tool.execute.before`, throw | designed |

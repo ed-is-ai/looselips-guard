@@ -243,26 +243,33 @@ CONFIG_TEMPLATE = {
     "max_added_file_bytes": DEFAULT_MAX_BYTES,
 }
 
-_CLAUDE_ENTRY = {"matcher": "Bash",
-                 "hooks": [{"type": "command", "command": "looselips-guard"}]}
-HOSTS = {
-    "claude":  {"file": ".claude/settings.json", "home": ".claude/settings.json",
-                "event": "PreToolUse", "entry": _CLAUDE_ENTRY},
-    "codex":   {"file": ".codex/hooks.json", "home": ".codex/hooks.json",
-                "event": "PreToolUse", "entry": _CLAUDE_ENTRY},
-    "copilot": {"file": ".github/hooks/looselips-guard.json",
-                "home": ".copilot/hooks/looselips-guard.json", "version": 1,
-                "event": "PreToolUse",
-                "entry": {"type": "command", "bash": "looselips-guard",
-                          "matcher": "bash|shell"}},
-    "cursor":  {"file": ".cursor/hooks.json", "home": ".cursor/hooks.json",
-                "version": 1, "event": "beforeShellExecution",
-                "entry": {"command": "looselips-guard", "failClosed": True}},
-    "hermes":  {"home": ".hermes/config.yaml", "yaml":
-                'hooks:\n  pre_tool_call:\n    - matcher: "terminal"\n'
-                '      command: "looselips-guard"\n      timeout: 5\n'
-                '      fail_closed: true\n'},
-}
+HOST_NAMES = ["claude", "codex", "copilot", "cursor", "hermes"]
+
+
+def _invocation():
+    """The command a wired hook should run, matching how this CLI was reached:
+    the `looselips-guard` bin if it's on PATH (npm), else this very script."""
+    import shutil
+    return shutil.which("looselips-guard") and "looselips-guard" \
+        or f"python3 {shlex.quote(os.path.abspath(__file__))}"
+
+
+def _hosts(cmd):
+    claude = {"matcher": "Bash", "hooks": [{"type": "command", "command": cmd}]}
+    return {
+        "claude":  {"path": ".claude/settings.json", "event": "PreToolUse", "entry": claude},
+        "codex":   {"path": ".codex/hooks.json", "event": "PreToolUse", "entry": claude},
+        "copilot": {"path": ".github/hooks/looselips-guard.json",
+                    "home_path": ".copilot/hooks/looselips-guard.json",
+                    "version": 1, "event": "PreToolUse",
+                    "entry": {"type": "command", "bash": cmd, "matcher": "bash|shell"}},
+        "cursor":  {"path": ".cursor/hooks.json", "version": 1,
+                    "event": "beforeShellExecution",
+                    "entry": {"command": cmd, "failClosed": True}},
+        "hermes":  {"path": ".hermes/config.yaml", "yaml":
+                    f'hooks:\n  pre_tool_call:\n    - matcher: "terminal"\n'
+                    f'      command: "{cmd}"\n      timeout: 5\n      fail_closed: true\n'},
+    }
 
 
 def _detected_hosts():
@@ -305,25 +312,25 @@ def cmd_init(names, use_home):
             f.write("\n")
         print(f"wrote {CONFIG_NAME} - list your own data in it (see README > Config)")
 
+    me = _invocation()
+    hosts = _hosts(me)
     targets = names or _detected_hosts()
     if not targets:
-        print("\nno host detected. Pass one explicitly:\n"
-              "  looselips-guard init [--global] " + "|".join(HOSTS))
+        print(f"\nno host detected. Pass one explicitly:\n"
+              f"  {me} init [--global] " + "|".join(HOST_NAMES))
         return 0
+    base = os.path.expanduser("~") if use_home else os.getcwd()
     for name in targets:
-        host = HOSTS.get(name)
-        if not host:
-            print(f"{name}: unknown host, skipped ({'|'.join(HOSTS)})")
-            continue
+        host = hosts[name]
         if "yaml" in host:
-            print(f"\n{name}: merge into ~/{host['home']} (YAML, do it by hand) -\n\n"
+            print(f"\n{name}: merge into ~/{host['path']} (YAML, do it by hand) -\n\n"
                   + "".join("    " + l + "\n" for l in host["yaml"].splitlines()))
             continue
-        rel = host["home"] if use_home else host["file"]
-        path = os.path.join(os.path.expanduser("~") if use_home else os.getcwd(), rel)
+        rel = host.get("home_path", host["path"]) if use_home else host["path"]
+        path = os.path.join(base, rel)
         print(f"{name}: {_wire_json(path, host)} -> {path}")
 
-    print("\nverify:  looselips-guard check")
+    print(f"\nverify:  {me} check")
     return 0
 
 
@@ -373,7 +380,7 @@ def _parser():
     sub = p.add_subparsers(dest="cmd")
 
     i = sub.add_parser("init", help="scaffold config and wire the hook into a host")
-    i.add_argument("host", nargs="*", choices=list(HOSTS),
+    i.add_argument("host", nargs="*", choices=HOST_NAMES,
                    help="host(s) to wire; omit to auto-detect")
     i.add_argument("--global", dest="use_home", action="store_true",
                    help="write the home-directory config, not the project one")
