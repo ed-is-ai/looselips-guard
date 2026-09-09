@@ -109,19 +109,19 @@ Every host is fail-open on a slow hook except Cursor and Hermes.
 
 ## How it works
 
-Three layers. Only the middle one ever changes when a new host appears.
+Four steps in one pass, and the host-specific part is almost nothing.
 
 ```
   agent runs a command
           │
           ▼
-  ┌───────────────────┐   the host pauses the tool call and hands us
-  │  host pre-tool    │   the command as JSON on stdin
+  ┌───────────────────┐   the host pauses the tool call and pipes the
+  │  host pre-tool    │   command to us as JSON on stdin
   │  hook             │
   └─────────┬─────────┘
             ▼
-  ┌───────────────────┐   knows where each host puts the command and
-  │  host adapter     │   how each host expects to be told "no"
+  ┌───────────────────┐   read `command` and `cwd` from the event;
+  │  host adapter     │   later, block with `exit 2` — that's the whole of it
   └─────────┬─────────┘
             ▼
   ┌───────────────────┐   is this a write to the outside world?
@@ -132,8 +132,8 @@ Three layers. Only the middle one ever changes when a new host appears.
   │  payload          │   git add is resolved via --dry-run
   └─────────┬─────────┘
             ▼
-  ┌───────────────────┐   your denylist  ·  221 secret rules  ·  size limit
-  │  rules            │
+  ┌───────────────────┐   denylist + your regex patterns · 221 secret
+  │  rules            │   rules · staged-file size limit
   └─────────┬─────────┘
             ▼
      allow   or   block, naming exactly what matched and where
@@ -156,15 +156,16 @@ no shell-command hook at all — and gets a small in-process plugin.
 
 | Source | Catches | Why this shape |
 |---|---|---|
-| Your denylist, derived from your own data | Tickers, balances, account ids | Generic PII regexes are useless here — see below |
+| Your denylist, derived from your own data (plus opt-in regex `patterns`) | Tickers, balances, account ids and their formats | Generic PII regexes are useless here — see below |
 | 221 rules ported from gitleaks | API keys, tokens, private keys | Credentials *do* have recognisable shapes |
 | A size limit on staged files | The 1.1 MB SQLite backup | One rule closes the entire git-object route |
 
-**Speed is a correctness requirement, not a nicety.** Every host is fail-open on
-timeout — Claude Code's own docs say not to count on a stalled hook as a gate.
-A slow hook doesn't annoy you, it silently stops guarding. So: no dependencies,
-nothing imported that isn't needed, and a keyword prefilter in front of the
-secret rules.
+**Speed is a correctness requirement, not a nicety.** Most hosts are fail-open on
+timeout — Claude Code's own docs say not to count on a stalled hook as a gate,
+and only Cursor and Hermes can be told to fail closed. A slow hook doesn't annoy
+you, it silently stops guarding. So: no dependencies, nothing imported that
+isn't needed (argparse only when a subcommand is given, never on the hook path),
+and a keyword prefilter in front of the secret rules.
 
 | Operation | Measured |
 |---|---|
