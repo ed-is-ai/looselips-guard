@@ -225,17 +225,74 @@ claude-code-redaction-hooks, sensitive-canary). looselips does not claim a
 better inbound scanner. What it adds is one install and one config covering both
 directions, with the outbound half that nothing else covers.
 
-## 7. `looselips init`
+## 7. Installers
 
-One command covers both jobs:
+Every target needs a one-command install, or the host matrix is a list of things
+users won't do by hand. Three distribution artifacts cover all eight.
 
-1. Scan the repo for `.db`, `.csv`, `.env` files and the git author email.
-2. Propose a denylist config; write `.looselips.json`; add it to `.gitignore`.
-3. With `--host <name>`, merge that host's hook snippet into the right config
-   file for that host.
+### Artifacts
 
-Rationale: a fresh install with no config blocks nothing and looks broken. The
-denylist is the product, so generating a good first one is the adoption story.
+| Artifact | Contains | Serves |
+|---|---|---|
+| PyPI `looselips` | core, adapter, `init`, Hermes plugin entry point | Codex, Copilot, Cursor, Hermes, dsh, and any manual install |
+| Claude Code plugin | bundles the same script | Claude Code — zero install, no Python packaging step |
+| npm `@looselips/opencode`, `@looselips/openclaw` | ~15-line shim that spawns the core and throws/blocks | opencode, OpenClaw |
+
+Hermes needs no separate package: it is a Python entry point inside the PyPI
+distribution. dsh needs none either, if its bridge speaks the Claude Code
+protocol — it reuses that manifest (pending spike 3).
+
+### `looselips init`
+
+One command does both jobs, for whichever host is named:
+
+1. **Denylist.** Scan for `.db`, `.csv`, `.env` and the git author email;
+   propose a config; write `.looselips.json`; add it to `.gitignore`.
+2. **Wiring.** Merge the host's hook snippet into that host's config file.
+
+```
+looselips init                  # detect installed hosts, offer to wire each
+looselips init --host cursor    # wire one host explicitly
+looselips init --host cursor --remove
+looselips init --dry-run        # print the diff, write nothing
+```
+
+Bare `init` detects which hosts are actually present by looking for their config
+directories, and offers only those. A user with Cursor and Claude Code should
+not be asked about OpenClaw.
+
+### Config paths per host
+
+| Host | Written to | Committed? |
+|---|---|---|
+| Claude Code | plugin install, or `.claude/settings.json` | yes |
+| Codex | `hooks.json` | yes |
+| Copilot | `.github/hooks/looselips.json` | yes — covers the whole team |
+| Cursor | `.cursor/hooks.json` | yes — loads for everyone in a trusted workspace |
+| opencode | opencode plugin config | yes |
+| OpenClaw | OpenClaw plugin config | yes |
+| Hermes | Hermes plugin config | yes |
+| dsh | Claude Code-compatible hooks file | yes |
+
+Hook wiring is safe to commit — it holds no secrets, and committing it means the
+guard covers everyone on the repo. `.looselips.json` is the opposite: never
+committed, and `init` gitignores it on creation.
+
+### Rules for touching user config
+
+`init` edits files it does not own, so:
+
+- **Idempotent.** Entries carry a `"looselips"` marker; re-running updates in
+  place rather than appending a duplicate.
+- **Reversible.** `--remove` deletes exactly what the marker identifies.
+- **Non-destructive.** Back up the file before writing; never reformat unrelated
+  content; preserve the existing JSON structure.
+- **Inspectable.** `--dry-run` prints the diff without writing.
+
+### Open
+
+Package names and registry accounts (`looselips` on PyPI, `@looselips` on npm)
+are unclaimed and unverified.
 
 ## 8. Matcher
 
