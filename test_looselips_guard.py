@@ -104,6 +104,13 @@ def main():
         assert subprocess.run([sys.executable, script], input=clean,
                               capture_output=True, text=True).returncode == 0
 
+        # Hermes sends the same shape with extra keys; still blocks on exit 2
+        hermes = json.dumps({"hook_event_name": "pre_tool_call", "tool_name": "terminal",
+                 "tool_input": {"command": f"gh issue create --title t --body {json.dumps(LEAKS[1])}"},
+                 "cwd": tmp, "extra": {"task_id": "t1"}})
+        assert subprocess.run([sys.executable, script], input=hermes,
+                              capture_output=True, text=True).returncode == 2
+
     print("ok")
 
 
