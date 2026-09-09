@@ -289,10 +289,28 @@ committed, and `init` gitignores it on creation.
   content; preserve the existing JSON structure.
 - **Inspectable.** `--dry-run` prints the diff without writing.
 
-### Open
+### Registry names — checked 2026-09-09
 
-Package names and registry accounts (`looselips` on PyPI, `@looselips` on npm)
-are unclaimed and unverified.
+`looselips` on PyPI is **taken**: an unrelated but adjacent project, "Scan your
+LLM chat exports for personal information", v0.2.1, last uploaded 2026-04-23.
+
+Resolution: the PyPI distribution is **`looselips-guard`**; the installed
+command stays `looselips`. Distribution name and command name differ routinely.
+The `@looselips` npm scope is free, so npm is unaffected.
+
+Free on both registries if a full rename is ever preferred: `looselips-guard`,
+`egressguard`, `loosecannon`.
+
+### Release process
+
+`scripts/release.sh <version>` bumps `pyproject.toml`, runs the tests, commits,
+tags `v<version>` and pushes. The tag triggers `.github/workflows/release.yml`,
+which re-runs the tests, checks the tag matches the declared version, then
+publishes to PyPI via Trusted Publishing (OIDC, no stored token), publishes any
+`packages/*/package.json` to npm with provenance, and cuts a GitHub release.
+
+Version lives in `pyproject.toml` and is mirrored to `plugin.json` when the
+Claude Code plugin manifest is added.
 
 ## 8. Matcher
 

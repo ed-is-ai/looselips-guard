@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "looselips-guard"
+version = "0.1.0"
+description = "Stops your coding agent publishing your data to the world"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+keywords = ["security", "agent", "hooks", "egress", "claude-code", "codex", "cursor"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Topic :: Security",
+]
+
+# The command is `looselips`; only the PyPI distribution is `looselips-guard`,
+# because `looselips` is taken by an unrelated project.
+[project.scripts]
+looselips = "looselips:main"
+
+[project.optional-dependencies]
+anonymise = ["presidio-analyzer", "presidio-anonymizer"]
+
+[project.urls]
+Homepage = "https://github.com/reinvently/looselips"
+
+[tool.setuptools]
+py-modules = ["looselips"]

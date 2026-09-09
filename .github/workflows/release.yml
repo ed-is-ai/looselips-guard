@@ -1,0 +1,65 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Tag must match pyproject version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          [ "$tag" = "$ver" ] || { echo "tag $tag != pyproject $ver"; exit 1; }
+      - run: python test_looselips.py
+
+  pypi:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write          # Trusted Publishing — no API token stored
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pipx run build
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  npm:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write          # provenance attestation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - name: Publish every package that exists
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          shopt -s nullglob
+          found=(packages/*/package.json)
+          if [ ${#found[@]} -eq 0 ]; then echo "no npm packages yet, skipping"; exit 0; fi
+          for pkg in "${found[@]}"; do
+            ( cd "$(dirname "$pkg")" && npm publish --access public --provenance )
+          done
+
+  github-release:
+    needs: [pypi, npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: gh release create "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

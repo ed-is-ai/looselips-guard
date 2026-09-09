@@ -172,6 +172,17 @@ def check(command, cwd, config):
 
 
 def main():
+    if len(sys.argv) > 1:
+        sub = sys.argv[1]
+        if sub in ("init", "redact"):
+            print(f"looselips {sub}: not implemented yet — see the design spec",
+                  file=sys.stderr)
+            return 1
+        print(f"looselips: unknown command {sub!r}\n"
+              "usage: looselips            read a hook event on stdin\n"
+              "       looselips init       wire up a host and build a denylist",
+              file=sys.stderr)
+        return 1
     event = json.load(sys.stdin)
     command = event.get("tool_input", {}).get("command", "")
     cwd = event.get("cwd") or os.getcwd()
