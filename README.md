@@ -83,4 +83,4 @@ an oversized SQLite backup). No real data ships here.
 
 ## Credits
 
-Built by [Reinvently](https://reinvently.com).
+Built by the team at [Reinvently](https://reinvently.co.uk/about/).
