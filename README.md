@@ -16,12 +16,12 @@
 <p align="center"><em>Loose lips sink shops.</em></p>
 
 You want to run agents unattended. Sure, you can sandbox them and run a local
-model — but to do anything useful you have to hand them the outside world: the
+model — but to do anything useful you have to let them access the outside world: the
 internet, git, your email. And nothing there stops an agent firing your personal
-data into a public issue when it shouldn't, because the model doesn't know any
+data when it shouldn't, because the model doesn't know any
 better.
 
-Existing tools stop your secrets reaching the model. **looselips-guard stops the
+Existing agent tools focus on stopping your secrets reaching the model. **looselips-guard stops the
 agent publishing your data to the world.** It blocks a command *before it runs*
 when what's leaving the machine has something in it that shouldn't go: a banned
 string from your denylist, a credential, or a suspiciously big file that's
@@ -52,8 +52,14 @@ alias looselips-guard='python3 ~/looselips-guard/looselips_guard.py'   # so the 
 ```
 
 It's one dependency-free Python file either way. In Claude Code,
-`/plugin install looselips-guard@ed-is-ai` also wires the Claude hook — but you
-still want one of the above for `init` / `add` / `check`.
+
+```
+/plugin marketplace add ed-is-ai/looselips-guard
+/plugin install looselips-guard@reinvently
+```
+
+also wires the Claude hook — but you still want one of the above for
+`init` / `add` / `check`.
 
 **2. Wire it and describe your data**, from the project you want guarded:
 
@@ -88,7 +94,7 @@ the one thing worth knowing:
 
 | `host` | `init` wires | Worth knowing |
 |---|---|---|
-| `claude`  | `.claude/settings.json` | or `/plugin install looselips-guard@ed-is-ai` in Claude Code |
+| `claude`  | `.claude/settings.json` | or `/plugin install looselips-guard@reinvently` in Claude Code |
 | `codex`   | `~/.codex/hooks.json` | same event shape as Claude, `exit 2` blocks |
 | `copilot` | `.github/hooks/looselips-guard.json` | matcher `bash\|shell`; known bugs, not ours — plugin hooks don't always fire ([#2540](https://github.com/github/copilot-cli/issues/2540)), subagents ungated ([#2392](https://github.com/github/copilot-cli/issues/2392)) |
 | `cursor`  | `~/.cursor/hooks.json` | `failClosed: true` — blocks on a slow hook instead of failing open |
