@@ -245,7 +245,9 @@ def main():
               file=sys.stderr)
         return 1
     event = json.load(sys.stdin)
-    command = event.get("tool_input", {}).get("command", "")
+    # tool_input.command: Claude Code, Codex, Copilot, Hermes. command: Cursor's
+    # beforeShellExecution puts it top-level. cwd is top-level everywhere.
+    command = event.get("tool_input", {}).get("command") or event.get("command", "")
     cwd = event.get("cwd") or os.getcwd()
     if not command:
         return 0

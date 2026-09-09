@@ -41,9 +41,9 @@ It covers the two routes a git-history scanner misses completely:
 ## Getting started
 
 Two steps, about two minutes. Claude Code, [Codex](#codex),
-[GitHub Copilot](#github-copilot) and [Hermes Agent](#hermes-agent) work today,
-[OpenClaw](#openclaw) via a bundled plugin; [other hosts](#hosts) are designed
-and not yet built.
+[GitHub Copilot](#github-copilot), [Cursor](#cursor) and
+[Hermes Agent](#hermes-agent) work today, [OpenClaw](#openclaw) via a bundled
+plugin; [other hosts](#hosts) are designed and not yet built.
 
 **1. Install the plugin.** In Claude Code:
 
@@ -177,6 +177,29 @@ fails closed if the binary can't run; whether OpenClaw itself fails closed when 
 `before_tool_call` handler times out is not documented, so don't rely on it.
 </details>
 
+<details id="cursor"><summary>Cursor</summary>
+
+Cursor's `beforeShellExecution` hook sends `{ command, cwd }` — `command` is
+top-level, not under `tool_input`, which the script now also reads — and takes
+`exit 2` as a block. Get it on PATH (`npm install -g looselips-guard`, needs
+`python3`), then merge [`hooks/cursor-hooks.json`](hooks/cursor-hooks.json) into
+`~/.cursor/hooks.json` (global) or `.cursor/hooks.json` (one project):
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      { "command": "looselips-guard", "failClosed": true }
+    ]
+  }
+}
+```
+
+`failClosed: true` is honoured here too — Cursor and Hermes are the two hosts that
+can block on a slow hook rather than wave the command through.
+</details>
+
 <details id="deepseek-harness"><summary>DeepSeek Harness</summary>
 
 DeepSeek Harness ships a Claude Code / Codex `hooks.json` bridge (off by default).
@@ -263,11 +286,11 @@ boundary sees the agent legitimately read your database and then says nothing
 when it pastes the balance into a public issue.
 
 **There is barely a host adapter.** Every host gives us the same thing — a
-command, before it runs — and Claude Code, Codex, Copilot, Hermes and the
-DeepSeek bridge all send the same event shape (`tool_input.command`, `cwd`) and
-all read `exit 2` as a block, so one script covers them with no `--host` flag.
-Only the genuinely different hosts need a shim: OpenClaw a small in-process
-plugin, Cursor a JSON verdict, opencode a thrown error.
+command, before it runs. Claude Code, Codex, Copilot, Hermes and the DeepSeek
+bridge send `tool_input.command`; Cursor sends `command` top-level; all pass
+`cwd` and all read `exit 2` as a block. So one script reads both keys and covers
+every one of them with no `--host` flag. Only OpenClaw is genuinely different —
+no shell-command hook at all — and gets a small in-process plugin.
 
 **Three independent rule sources**, because they fail in different directions:
 
@@ -305,14 +328,14 @@ command and how we say no.
 | GitHub Copilot | `PreToolUse` (PascalCase), exit 2 | **works today** — same script, [wiring](#github-copilot) |
 | Hermes Agent | `pre_tool_call` shell hook, exit 2 | **works today** — same script, [wiring](#hermes-agent) |
 | OpenClaw / OpenClaw 2 | `before_tool_call` plugin, `{ block }` | **works today** — [bundled plugin](#openclaw) |
+| Cursor | `beforeShellExecution`, exit 2 | **works today** — same script, [wiring](#cursor) |
 | DeepSeek Harness | Claude Code / Codex hook bridge | works via bridge, [wiring](#deepseek-harness) — unverified |
-| Cursor | `beforeShellExecution`, JSON deny | designed |
 | opencode | `tool.execute.before`, throw | designed |
 
 Two things worth knowing before you rely on this:
 
-- **Every command-hook host is fail-open on timeout** except Hermes, which
-  honours `fail_closed: true` on `pre_tool_call`.
+- **Every command-hook host is fail-open on timeout** except Hermes and Cursor,
+  which honour `fail_closed` / `failClosed` on the pre-execution hook.
 - **opencode does not intercept subagent tool calls**
   ([open issue](https://github.com/anomalyco/opencode/issues/5894)), so a
   delegated `gh` call bypasses the guard there. Not ours to fix, but yours to

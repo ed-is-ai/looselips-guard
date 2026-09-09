@@ -111,6 +111,12 @@ def main():
         assert subprocess.run([sys.executable, script], input=hermes,
                               capture_output=True, text=True).returncode == 2
 
+        # Cursor's beforeShellExecution puts the command at top level
+        cursor = json.dumps({"command": f"gh issue create --title t --body {json.dumps(LEAKS[2])}",
+                             "cwd": tmp, "sandbox": False})
+        assert subprocess.run([sys.executable, script], input=cursor,
+                              capture_output=True, text=True).returncode == 2
+
     print("ok")
 
 
