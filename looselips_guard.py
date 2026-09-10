@@ -402,7 +402,7 @@ def _hosts(cmd):
                     "events": {"beforeShellExecution": {"command": cmd, "failClosed": True},
                                "beforeMCPExecution": {"command": cmd, "failClosed": True}}},
         "hermes":  {"path": ".hermes/config.yaml", "yaml":
-                    f'hooks:\n  pre_tool_call:\n    - matcher: "terminal"\n'
+                    f'hooks:\n  pre_tool_call:\n    - matcher: "terminal|^mcp__"\n'
                     f'      command: "{cmd}"\n      timeout: 5\n      fail_closed: true\n'},
     }
 

@@ -101,20 +101,24 @@ the one thing worth knowing:
 | `cursor`  | `~/.cursor/hooks.json` | `failClosed: true` — blocks on a slow hook instead of failing open |
 | `hermes`  | prints YAML for `~/.hermes/config.yaml` | shell tool is `terminal`; `fail_closed: true`, like Cursor |
 
-For `claude` and `codex` the matcher is `Bash|mcp__.*`, so MCP tool calls are
-guarded too; `cursor` also gets a `beforeMCPExecution` hook. `copilot` and
-`hermes` are shell-only for now.
+**MCP coverage.** MCP tool names use the same `mcp__<server>__<tool>` convention
+across Claude Code, Codex and Hermes, so `init` sets the matcher to
+`Bash|mcp__.*` / `terminal|^mcp__` and the guard scans write-y MCP calls there
+too. Cursor gets a separate `beforeMCPExecution` hook. The OpenClaw plugin
+forwards MCP calls as well (its ids are `<server>__<tool>`). Only **Copilot** is
+shell-only: its `preToolUse` does fire for MCP, but we haven't confirmed its MCP
+tool-naming or that `exit 2` blocks an MCP call there.
 
 Two hosts need a hand because they have no shell-command hook:
 
 - **OpenClaw / OpenClaw 2** — in-process TS plugin.
   `cp integrations/openclaw/looselips-guard.plugin.ts ~/.openclaw/policies/`, then
   add `"~/.openclaw/policies/looselips-guard.plugin.ts"` to `plugins.load.paths`
-  in `~/.openclaw/openclaw.json`. The plugin runs `looselips-guard` synchronously
-  and returns `{ block }` on exit 2 or on a spawn error, so a *crash* fails
-  closed; OpenClaw's `before_tool_call` sets no default handler timeout and its
-  policy for a hung handler is undocumented, so a true *hang* would stall the
-  turn rather than fail either way.
+  in `~/.openclaw/openclaw.json`. It forwards `exec` and MCP calls to
+  `looselips-guard` and returns `{ block }` on exit 2 or on a spawn error, so a
+  *crash* fails closed; OpenClaw's `before_tool_call` sets no default handler
+  timeout and its policy for a hung handler is undocumented, so a true *hang*
+  would stall the turn rather than fail either way.
 - **DeepSeek Harness** — enable its Claude Code / Codex `hooks.json` bridge
   ([`dsh-hooks-claude-code`](https://github.com/deepseek-ai/deepseek-harness)) and
   point it at [`hooks/codex-hooks.json`](hooks/codex-hooks.json). Its pre-execute
@@ -364,8 +368,9 @@ protection is best-effort by construction, and says so.
   agent-initiated calls.
 - Rewriting outbound payloads. Silently altering an issue body the agent wrote
   is worse than refusing it, so outbound blocks and never edits.
-- MCP calls on Copilot, Hermes and OpenClaw — shell-only for now (Claude, Codex
-  and Cursor are wired for MCP).
+- MCP calls on Copilot — its MCP tool-naming and exit-2 blocking are unconfirmed,
+  so the matcher there stays shell-only (Claude, Codex, Cursor, Hermes and
+  OpenClaw all scan MCP writes).
 - Other outbound tools — `scp`, `rsync`, a raw `nc`. The matcher is built to extend.
 
 ## Development

@@ -1,10 +1,11 @@
 # Merge into ~/.hermes/config.yaml (global) or <repo>/.hermes/config.yaml.
 # Hermes pipes Claude Code-shaped JSON to stdin ({tool_name, tool_input.command,
 # cwd, ...}) and reads exit 2 as a block, so `looselips-guard` runs unchanged.
-# Its shell tool is named `terminal`, not `Bash`.
+# Its shell tool is `terminal`; MCP tools are `mcp__<server>__<tool>` (same
+# convention as Claude Code), so the matcher covers both.
 hooks:
   pre_tool_call:
-    - matcher: "terminal"
+    - matcher: "terminal|^mcp__"
       command: "looselips-guard"
       timeout: 5
-      fail_closed: true   # Hermes is the one host that can fail *closed* on timeout
+      fail_closed: true   # Hermes can fail *closed* on timeout
