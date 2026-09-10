@@ -32,6 +32,8 @@ jobs:
         with: { python-version: "3.12" }
       - run: pipx run build
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true   # idempotent: a re-run against an already-published version doesn't fail
 
   npm:
     needs: test
