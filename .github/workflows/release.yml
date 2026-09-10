@@ -37,22 +37,24 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     permissions:
-      id-token: write          # provenance attestation
+      id-token: write          # OIDC trusted publishing + provenance
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           registry-url: "https://registry.npmjs.org"
+      - run: npm install -g npm@latest   # trusted publishing needs npm >= 11.5.1
       - name: Publish every package that exists
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           shopt -s nullglob
           found=(packages/*/package.json)
           if [ ${#found[@]} -eq 0 ]; then echo "no npm packages yet, skipping"; exit 0; fi
           for pkg in "${found[@]}"; do
-            ( cd "$(dirname "$pkg")" && npm publish --access public --provenance )
+            # OIDC: no token, provenance is automatic. Package must already exist
+            # on npm with a trusted publisher configured (bootstrap the first
+            # version with a local `npm publish`).
+            ( cd "$(dirname "$pkg")" && npm publish --access public )
           done
 
   github-release:
