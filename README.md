@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/status-alpha-d29922" alt="Alpha">
 </p>
 
-<p align="center"><em>Loose lips sink shops.</em>&nbsp;❤️</p>
+<p align="center"><em>Loose lips sink shops.</em></p>
 
 You want to run agents unattended. Sure, you can sandbox them and run a local
 model — but to do anything useful you have to let them access the outside world: the
@@ -25,7 +25,7 @@ Existing agent tools focus on stopping your secrets reaching the model. **loosel
 agent publishing your data to the world.** It blocks a command *before it runs*
 when what's leaving the machine has something in it that shouldn't go: a banned
 string from your denylist, a credential, or a suspiciously big file that's
-probably a database dump. All three run in the one hook, in a single pass over
+probably a database dump. They all run in the one hook, in a single pass over
 the payload, before the command executes — the credential check is
 [gitleaks](https://github.com/gitleaks/gitleaks)' 221 secret-detection rules
 ported to run in-process, not a separate scanner you install or invoke.
@@ -99,6 +99,10 @@ the one thing worth knowing:
 | `copilot` | `.github/hooks/looselips-guard.json` | matcher `bash\|shell`; known bugs, not ours — plugin hooks don't always fire ([#2540](https://github.com/github/copilot-cli/issues/2540)), subagents ungated ([#2392](https://github.com/github/copilot-cli/issues/2392)) |
 | `cursor`  | `~/.cursor/hooks.json` | `failClosed: true` — blocks on a slow hook instead of failing open |
 | `hermes`  | prints YAML for `~/.hermes/config.yaml` | shell tool is `terminal`; `fail_closed: true`, like Cursor |
+
+For `claude` and `codex` the matcher is `Bash|mcp__.*`, so MCP tool calls are
+guarded too; `cursor` also gets a `beforeMCPExecution` hook. `copilot` and
+`hermes` are shell-only for now.
 
 Two hosts need a hand because they have no shell-command hook:
 
@@ -175,7 +179,7 @@ no shell-command hook at all — and gets a small in-process plugin.
 | 221 rules ported from gitleaks | API keys, tokens, private keys | Credentials *do* have recognisable shapes |
 | A size limit on staged files | The 1.1 MB SQLite backup | One rule closes the entire git-object route |
 
-**Warning** Most hosts are fail-open on
+**Speed is a correctness requirement, not a nicety.** Most hosts are fail-open on
 timeout — Claude Code's own docs say not to count on a stalled hook as a gate
 ([hooks reference](https://code.claude.com/docs/en/hooks)) — and only Cursor and
 Hermes can be told to fail closed. A slow hook doesn't annoy you, it silently
@@ -191,17 +195,18 @@ in front of the secret rules.
 | Secret rules when something matches | ~1 ms |
 | Compiling all 221 rules, if we didn't prefilter | 19.8 ms |
 
-**In practice the timeout race isnt a thing** Claude Code's default `PreToolUse`
-timeout is **600 seconds** ([hooks reference](https://code.claude.com/docs/en/hooks));
-Codex's is the same ([Codex hooks](https://developers.openai.com/codex/hooks)). Our
-21 ms hook against a ten-minute ceiling doesn't fail open by accident — it would
+**In practice the timeout race isn't close.** Claude Code's default `PreToolUse`
+timeout is **600 seconds** ([hooks reference](https://code.claude.com/docs/en/hooks)),
+and Codex's is the same ([Codex hooks](https://developers.openai.com/codex/hooks)).
+A 21 ms hook against a ten-minute ceiling doesn't fail open by accident — it would
 have to *hang*: block forever on unreadable input, or catch a pathological regex.
-And the code dealw with those specifically — no dependencies to hang in, lazy imports,
-`--body-file -` is blocked rather than read, and a bad `patterns` entry is
-skipped, not run. So we have warned you, but it's not likely to be a thing on your agent.
+The design closes those off specifically — no dependencies to hang in, lazy
+imports, `--body-file -` blocked rather than read, a bad `patterns` entry skipped
+rather than run. So the residual fail-open risk isn't a slow hook; it's a
+genuinely stuck process or an adversary who can deliberately stall it.
 
-Having said that, a fail-closed host (Cursor, Hermes) guarantees the hook blocks. 
-So well done you, if you have already thought about this. You are a hero
+For that, a fail-closed host (Cursor, Hermes) is the real answer — it blocks on
+timeout regardless. If you've already set that up: well done you. You are a hero ❤️
 
 ---
 
@@ -340,12 +345,8 @@ protection is best-effort by construction, and says so.
   agent-initiated calls.
 - Rewriting outbound payloads. Silently altering an issue body the agent wrote
   is worse than refusing it, so outbound blocks and never edits.
-- MCP calls on hosts where the hook isn't wired for them — `init` does Claude,
-  Codex and Cursor (`beforeMCPExecution`); Copilot, Hermes and OpenClaw only get
-  the shell path for now.
-- An MCP call can't be re-run with an inline `LOOSELIPS_GUARD_OK=1` prefix the
-  way a shell command can — set it in the environment instead, or narrow
-  `mcp_tools`.
+- MCP calls on Copilot, Hermes and OpenClaw — shell-only for now (Claude, Codex
+  and Cursor are wired for MCP).
 - Other outbound tools — `scp`, `rsync`, a raw `nc`. The matcher is built to extend.
 
 ## Development
