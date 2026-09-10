@@ -30,10 +30,12 @@ the payload, before it executes — the credential check is
 [gitleaks](https://github.com/gitleaks/gitleaks)' 221 secret-detection rules
 ported to run in-process, not a separate scanner you install or invoke.
 
-It covers the two routes a git-history scanner misses completely:
+It watches `gh`, `git`, `curl`/`wget`, `scp`/`rsync`, `nc` and MCP tool calls
+(full list [below](#what-it-intercepts)) — but the two that nothing else covers
+are the reason it exists:
 
-- **issue and PR bodies** — they never become git objects, so a scanner never
-  sees them
+- **issue and PR bodies** — they never become git objects, so a git-history
+  scanner never sees them
 - **`git add -A`** quietly sweeping a live database onto a public branch
 
 ---
@@ -163,7 +165,7 @@ Four steps in one pass, and the host-specific part is almost nothing.
   └─────────┬─────────┘
             ▼
   ┌───────────────────┐   denylist + your regex patterns · 221 secret
-  │  rules            │   rules · staged-file size limit
+  │  rules            │   rules · staged/uploaded-file size limit
   └─────────┬─────────┘
             ▼
      allow   or   block, naming exactly what matched and where
@@ -178,9 +180,10 @@ when it pastes the balance into a public issue.
 **There is barely a host adapter.** Every host gives us the same thing — a
 command, before it runs. Claude Code, Codex, Copilot, Hermes and the DeepSeek
 bridge send `tool_input.command`; Cursor sends `command` top-level; all pass
-`cwd` and all read `exit 2` as a block. So one script reads both keys and covers
-every one of them with no `--host` flag. Only OpenClaw is genuinely different —
-no shell-command hook at all — and gets a small in-process plugin.
+`cwd` and all read `exit 2` as a block. So one script reads the command out of
+whichever key holds it and covers every one of them with no `--host` flag. Only
+OpenClaw is genuinely different — no shell-command hook at all — and gets a small
+in-process plugin.
 
 **Three independent rule sources**, because they fail in different directions:
 
@@ -188,7 +191,7 @@ no shell-command hook at all — and gets a small in-process plugin.
 |---|---|---|
 | Your denylist, derived from your own data (plus opt-in regex `patterns`) | Tickers, balances, account ids and their formats | Generic PII regexes are useless here — see below |
 | 221 rules ported from gitleaks | API keys, tokens, private keys | Credentials *do* have recognisable shapes |
-| A size limit on staged files | The 1.1 MB SQLite backup | One rule closes the entire git-object route |
+| A size limit on staged / uploaded files | The 1.1 MB SQLite backup | One rule closes the whole "ship the database" route |
 
 **Speed is a correctness requirement, not a nicety.** Most hosts are fail-open on
 timeout — Claude Code's own docs say not to count on a stalled hook as a gate
@@ -223,7 +226,7 @@ timeout regardless. If you've already set that up: well done you. You are a hero
 
 ## Hosts
 
-The matcher is identical everywhere. What differs is how each host hands us the
+The scanning is identical everywhere. What differs is how each host hands us the
 command and how we say no.
 
 Wiring for each is in [Getting started › Per host](#per-host); `looselips-guard
@@ -288,7 +291,8 @@ items found across 258 issues and 306 PRs, with zero false positives.
 - `allow` — collision list, for tickers that are also words (`ALL`, `ON`, `CAT`).
   Matching is case-sensitive with word boundaries, which removes most collisions
   before this list is needed. `allow` does not apply to `patterns`.
-- `max_added_file_bytes` — files larger than this cannot be staged (default 500 KB).
+- `max_added_file_bytes` — files larger than this are blocked from `git add` and
+  from `scp`/`rsync` uploads without being read (default 500 KB).
 - `mcp_tools` — regex of MCP tool names whose arguments get scanned. Default is a
   set of write verbs (`create|post|send|comment|publish|upload|write|update|…`)
   so reading your own data through an MCP server doesn't trip the denylist. Set
