@@ -18,7 +18,7 @@ jobs:
           [ "$tag" = "$ver" ] || { echo "tag $tag != pyproject $ver"; exit 1; }
           npm=$(node -p "require('./packages/looselips-guard/package.json').version")
           [ "$tag" = "$npm" ] || { echo "tag $tag != npm $npm"; exit 1; }
-      - run: python test_looselips_guard.py
+      - run: python tests/run.py
 
   pypi:
     needs: test

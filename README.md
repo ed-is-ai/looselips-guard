@@ -406,7 +406,7 @@ silent bypass: exotic quoting, an encoding it doesn't decode, a redirection or
 heredoc, an argument order the parser didn't expect. `curl --data @-` and
 `--body-file -` (reads from stdin, which the hook can't see) are blocked
 outright for this reason; the rest is best-effort. The
-[test suite](test_looselips_guard.py) includes an adversarial group, but it is
+[test suite](tests/) includes an adversarial group, but it is
 not exhaustive.
 
 **Out of scope by design:**
@@ -425,14 +425,17 @@ not exhaustive.
 ## Development
 
 ```bash
-python3 test_looselips_guard.py              # synthetic fixtures, no real data
+python3 tests/run.py                   # whole suite; or run one file, e.g. tests/test_matchers.py
 python3 scripts/port_gitleaks_rules.py # refresh the secret rules from upstream
 scripts/release.sh 0.2.0               # bump, tag, push; CI publishes
 ```
 
-Fixtures are synthetic by policy: a ticker-like token beside a currency amount,
-a balance line, a holdings table, an oversized SQLite backup. The real incident
-data that shaped them is never published.
+`tests/` is framework-free — `assert`-based `run_tests()` per file, shared corpus
+in `tests/fixtures.py`. `test_scan` is the rule engine, `test_matchers` the
+command parsing (incl. the adversarial group), `test_hosts` the per-host event
+shapes end to end, `test_cli` the setup CLI. Fixtures are synthetic by policy: a
+ticker-like token beside a currency amount, a balance line, a holdings table, an
+oversized SQLite backup. The real incident data that shaped them is never published.
 
 ## Credits
 
