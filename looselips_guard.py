@@ -482,6 +482,40 @@ def regex_from_example(s):
     return r"\b" + "".join(parts) + r"\b"
 
 
+# Optional starter regexes, added only when you ask (`add --preset <name>`; see
+# them with `looselips-guard presets`). Deliberately tiny: format-based, low
+# false-positive, and not already covered by the gitleaks credential rules.
+# Everything specific to you should come from your own data via `add` /
+# `add --like`, not a generic pack.
+PRESETS = {
+    "internal": {
+        "source": "RFC 1918 private IPv4 ranges; .internal is ICANN-reserved for "
+                  "private use, .corp/.intranet/.lan are convention",
+        "patterns": [
+            r"\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
+            r"\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b",
+            r"\b192\.168\.\d{1,3}\.\d{1,3}\b",
+            r"\b[\w.-]+\.(?:internal|corp|intranet|lan)\b",
+        ],
+    },
+    "cloud": {
+        "source": "AWS ARN format (docs.aws.amazon.com/IAM/latest/UserGuide/reference-arns.html); "
+                  "s3:// URIs",
+        "patterns": [
+            r"\barn:aws:[a-z0-9-]+:[a-z0-9-]*:\d{12}:\S+",
+            r"\bs3://[a-z0-9.\-]{3,63}/\S*",
+        ],
+    },
+    "k8s": {
+        "source": "Kubernetes cluster DNS (kubernetes.io/docs/concepts/services-networking/dns-pod-service)",
+        "patterns": [
+            r"\b[\w.-]+\.svc\.cluster\.local\b",
+            r"\b[\w.-]+\.pod\.cluster\.local\b",
+        ],
+    },
+}
+
+
 def _add_patterns(pats):
     cfg = os.path.join(os.getcwd(), CONFIG_NAME)
     data = json.load(open(cfg)) if os.path.exists(cfg) else dict(CONFIG_TEMPLATE)
@@ -495,8 +529,27 @@ def _add_patterns(pats):
     return 0
 
 
-def cmd_add(values, as_regex=False, like=False):
+def cmd_presets():
+    for name, p in PRESETS.items():
+        print(f"{name}  ({p['source']})")
+        for rx in p["patterns"]:
+            print(f"    {rx}")
+    print(f"\nadd one with:  looselips-guard add --preset "
+          + "|".join(PRESETS) + "\n(format-based starters - review and trim to your environment)")
+    return 0
+
+
+def cmd_add(values, as_regex=False, like=False, preset=None):
+    if preset:
+        pats = PRESETS[preset]["patterns"]
+        print(f"  preset {preset!r}: {len(pats)} patterns from {PRESETS[preset]['source']}")
+        return _add_patterns(pats)
+
     values = [v.strip() for v in values if v.strip()]
+    if not values:
+        print("usage: looselips-guard add VALUE... | --regex RX... | --like EX... "
+              "| --preset " + "|".join(PRESETS), file=sys.stderr)
+        return 1
 
     if as_regex:                      # comma may be a quantifier \d{2,4}, don't split
         for p in values:
@@ -565,15 +618,18 @@ def _parser():
                    help="write the home-directory config, not the project one")
 
     a = sub.add_parser("add", help="add terms to the blocklist")
-    a.add_argument("value", nargs="+",
+    a.add_argument("value", nargs="*",
                    help="term to block; args or a comma-separated list")
     g = a.add_mutually_exclusive_group()
     g.add_argument("--regex", action="store_true",
                    help='args are regexes -> config "patterns" (you anchor your own)')
     g.add_argument("--like", action="store_true",
                    help="args are example values; derive a regex from each (digit runs -> \\d{n})")
+    g.add_argument("--preset", choices=list(PRESETS),
+                   help="add a small vetted starter set of format patterns")
 
     sub.add_parser("check", help="self-test the install")
+    sub.add_parser("presets", help="show the built-in regex starter sets")
     sub.add_parser("redact", help="(not implemented yet)")
     return p
 
@@ -584,9 +640,11 @@ def main():
         if args.cmd == "init":
             return cmd_init(args.host, args.use_home)
         if args.cmd == "add":
-            return cmd_add(args.value, args.regex, args.like)
+            return cmd_add(args.value, args.regex, args.like, args.preset)
         if args.cmd == "check":
             return cmd_check()
+        if args.cmd == "presets":
+            return cmd_presets()
         if args.cmd == "redact":
             print("looselips-guard redact: not implemented yet - see the design spec",
                   file=sys.stderr)

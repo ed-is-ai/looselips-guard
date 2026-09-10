@@ -68,6 +68,7 @@ looselips-guard init      # scaffold config, detect your agent, wire its hook
 looselips-guard add ZQXF VNTR Acct-99001122
 looselips-guard add "ZQXF,VNTR,ACME Corp,Acct-99001122"   # or one comma-separated list
 looselips-guard add --like Acct-99001122                  # block the format: \bAcct-\d{8}\b
+looselips-guard presets                                   # optional starter regex sets (internal, cloud, k8s)
 looselips-guard check     # confirm it's guarding you
 ```
 
@@ -274,7 +275,25 @@ items found across 258 issues and 306 PRs, with zero false positives.
   warning above. `looselips-guard add --regex '<pattern>'` appends one;
   `add --like 'Acct-99001122'` derives `\bAcct-\d{8}\b` from an example and
   appends that. A pattern that won't compile is warned about on stderr and
-  skipped, never fatal.
+  skipped, never fatal. Empty by default — nothing is added unless you ask.
+
+There is no shipped generic-PII pack, on purpose (see the box above for why they
+backfire). What there is: a few opt-in **presets** of format-based patterns you
+can pull in as a head start. `looselips-guard presets` prints them with sources;
+nothing is added until you run `add --preset`.
+
+| preset | patterns | from |
+|---|---|---|
+| `internal` | RFC 1918 IPs (`10/8`, `172.16/12`, `192.168/16`); `*.internal`/`*.corp`/`*.intranet`/`*.lan` | [RFC 1918](https://datatracker.ietf.org/doc/html/rfc1918); `.internal` is [ICANN-reserved](https://www.icann.org/en/board-activities-and-meetings/materials/approved-resolutions-special-meeting-of-the-icann-board-24-07-2024-en#section2.a) for private use |
+| `cloud` | `arn:aws:…:<acct>:…`; `s3://…` URIs | [AWS ARN format](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference-arns.html) |
+| `k8s` | `*.svc.cluster.local`, `*.pod.cluster.local` | [Kubernetes cluster DNS](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/) |
+
+```bash
+looselips-guard add --preset internal      # pull one in; run again for another
+```
+
+Presets are a starting point, not a policy — review and trim them to your
+environment. They're never added by `init`.
 - `allow` — collision list, for tickers that are also words (`ALL`, `ON`, `CAT`).
   Matching is case-sensitive with word boundaries, which removes most collisions
   before this list is needed. `allow` does not apply to `patterns`.

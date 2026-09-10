@@ -180,12 +180,22 @@ def main():
             run_cli("add", "--like", "Acct-99001122")
             run_cli("add", "--regex", r"\bZONE-\d{2,4}\b")
             assert run_cli("add", "--regex", "(oops").returncode == 1  # bad regex rejected
+            assert run_cli("add").returncode == 1                      # no args, no flag
             pats = json.load(open(os.path.join(proj, ".looselips-guard.json")))["patterns"]
             assert pats == [r"\bAcct\-\d{8}\b", r"\bZONE-\d{2,4}\b"], pats
             hit = looselips_guard.check(
                 'gh issue create --title t --body "see Acct-12345678 and ZONE-77"',
                 proj, looselips_guard.load_config(proj))
             assert any("Acct" in f for f in hit) and any("ZONE" in f for f in hit), hit
+            run_cli("add", "--preset", "internal")
+            run_cli("add", "--preset", "internal")   # idempotent
+            run_cli("add", "--preset", "k8s")
+            got = json.load(open(os.path.join(proj, ".looselips-guard.json")))["patterns"]
+            assert sum(1 for p in got if "192\\.168" in p) == 1, got
+            assert any("cluster" in p for p in got), got
+            pr = run_cli("presets")
+            assert pr.returncode == 0 and "RFC 1918" in pr.stdout, pr
+            assert run_cli("add", "--preset", "nope").returncode == 2  # bad preset
 
         # a pattern that will not compile is skipped, not fatal
         assert len(looselips_guard.compiled_patterns({"patterns": [r"(nope", r"\bOK\b"]})) == 1
