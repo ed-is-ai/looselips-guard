@@ -239,6 +239,50 @@ def git_push_diff(cwd):
     return diff[:DIFF_CAP]                     # ponytail: cap the scan, huge diffs are rare
 
 
+def _scan_file(path, label, limit, hits, findings):
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return
+    if size > limit:
+        findings.append(f"{label}: {size} bytes exceeds limit {limit}")
+        return
+    try:
+        with open(path, errors="replace") as f:
+            hits(f.read(), label)
+    except OSError:
+        pass
+
+
+# flags that consume the next arg, for scp and rsync
+_SCP_ARG_FLAGS = {"-P", "-p", "-i", "-o", "-c", "-F", "-J", "-l", "-S", "-e",
+                  "--rsh", "--port", "--exclude", "--include", "--files-from",
+                  "--bwlimit", "--timeout", "--rsync-path", "--log-file"}
+
+
+def _is_remote(arg):
+    # user@host:path or host:path or rsync://host/... - a colon before any slash
+    return bool(re.match(r"[\w.-]+@[\w.-]+:", arg) or re.match(r"rsync://", arg)
+                or re.match(r"[\w.-]+:(?!\\)", arg) and "/" not in arg.split(":", 1)[0])
+
+
+def scp_rsync_sources(argv):
+    """Local source paths for an scp/rsync that uploads to a remote. Empty if the
+    transfer is a download or purely local."""
+    pos, skip = [], False
+    for a in argv[1:]:
+        if skip:
+            skip = False
+            continue
+        if a in _SCP_ARG_FLAGS:
+            skip = True
+        elif not a.startswith("-"):
+            pos.append(a)
+    if len(pos) < 2 or not _is_remote(pos[-1]):
+        return []
+    return [p for p in pos[:-1] if not _is_remote(p)]
+
+
 # --- main -----------------------------------------------------------------
 
 class _Scanner:
@@ -333,19 +377,7 @@ def check(command, cwd, config):
     elif argv[:2] == ["git", "add"]:
         limit = config.get("max_added_file_bytes", DEFAULT_MAX_BYTES)
         for rel in git_added_files(argv, cwd):
-            p = os.path.join(cwd, rel)
-            try:
-                size = os.path.getsize(p)
-            except OSError:
-                continue
-            if size > limit:
-                findings.append(f"{rel}: {size} bytes exceeds limit {limit}")
-                continue
-            try:
-                with open(p, errors="replace") as f:
-                    hits(f.read(), rel)
-            except OSError:
-                pass
+            _scan_file(os.path.join(cwd, rel), rel, limit, hits, findings)
     elif argv[:2] == ["git", "commit"]:
         for text in payloads(argv[2:], cwd)[0]:
             hits(text, "commit message")
@@ -359,6 +391,26 @@ def check(command, cwd, config):
             hits(t, "request")
         for u in unreadable:
             findings.append(f"request body not readable, cannot scan: {u}")
+    elif argv and argv[0] in ("scp", "rsync"):
+        limit = config.get("max_added_file_bytes", DEFAULT_MAX_BYTES)
+        for src in scp_rsync_sources(argv):
+            p = src if os.path.isabs(src) else os.path.join(cwd, src)
+            if os.path.isdir(p):
+                for root, _, files in os.walk(p):
+                    for name in files:
+                        fp = os.path.join(root, name)
+                        _scan_file(fp, os.path.relpath(fp, cwd), limit, hits, findings)
+            else:
+                _scan_file(p, src, limit, hits, findings)
+    elif any(a in ("nc", "ncat", "netcat") for a in argv) and re.search(r"\b\d{2,5}\b", command):
+        hits(command, "netcat command")
+        for f in re.findall(r"(?:\bcat|<)\s+([^\s|<>&;]+)", command):
+            p = f if os.path.isabs(f) else os.path.join(cwd, f)
+            try:
+                with open(p, errors="replace") as fh:
+                    hits(fh.read(), f)
+            except OSError:
+                pass
     return findings
 
 

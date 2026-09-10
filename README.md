@@ -155,11 +155,11 @@ Four steps in one pass, and the host-specific part is almost nothing.
   └─────────┬─────────┘
             ▼
   ┌───────────────────┐   is this a write to the outside world?  gh issue/pr,
-  │  matcher          │   gh api mutation, git add/commit/push, curl/wget, MCP writes
+  │  matcher          │   gh api, git add/commit/push, curl/wget, scp/rsync, nc, MCP
   └─────────┬─────────┘
             ▼
-  ┌───────────────────┐   --body-file and curl @file are read from disk; git add
-  │  payload          │   via --dry-run, git push via rev-list; MCP args walked
+  ┌───────────────────┐   --body-file, curl @file, scp/rsync sources read from
+  │  payload          │   disk; git add via --dry-run, push via rev-list; MCP args walked
   └─────────┬─────────┘
             ▼
   ┌───────────────────┐   denylist + your regex patterns · 221 secret
@@ -331,6 +331,11 @@ Secrets are handled separately, by 221 rules ported from gitleaks, so there is
 - `git push` — the diff of commits not yet on any remote (capped at 2 MB)
 - `curl` / `wget` — request body (`-d`/`--data*`/`-F`/`-T`/`--json`/`--post-data`,
   inline or `@file`), and the URL itself
+- `scp` / `rsync` — when the destination is remote, the contents of every local
+  source file (directories walked, same size cap as `git add`); a download is
+  left alone
+- `nc` / `ncat` / `netcat` with a port — the command line itself and any file it
+  pipes in (`cat file | nc …`, `nc … < file`)
 - **MCP tool calls** whose name matches a write verb (`create_issue`,
   `post_message`, …) — every string in the arguments. Tune with `mcp_tools`
   (see [Config](#config)); reads like `query` or `list_*` are skipped by default
@@ -378,9 +383,8 @@ protection is best-effort by construction, and says so.
   is worse than refusing it, so outbound blocks and never edits.
 - MCP calls on Copilot when `mcp_servers` isn't set — there's no tool-name prefix
   to detect them automatically, so you have to name the servers.
-- Other file-transfer tools — `scp` and `rsync` (copy to a remote host over SSH),
-  `nc`/netcat (pipe raw bytes to any host:port). They exfiltrate the same way but
-  aren't matched yet; the matcher is built to extend.
+- Whatever tool comes next. The matcher is a short list of `argv[0]` cases plus
+  `nc` anywhere in a pipeline — built to extend, not exhaustive.
 
 ## Development
 
