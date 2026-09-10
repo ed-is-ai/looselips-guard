@@ -436,12 +436,10 @@ CI (`.github/workflows/test.yml`) runs the suite on every PR and push to
 block merges on failure.
 
 `tests/` is framework-free — `assert`-based `run_tests()` per file, shared corpus
-in `tests/fixtures.py`. `test_scan` is the rule engine, `test_matchers` the
-command parsing, `test_matchers_adversarial` the quoting variants and known
-bypasses, `test_hosts` the per-host event shapes end to end, `test_cli` the setup
-CLI. Fixtures are synthetic by policy: a ticker-like token beside a currency
-amount, a balance line, a holdings table, an oversized SQLite backup. The real
-incident data that shaped them is never published.
+in `tests/fixtures.py`; [`tests/README.md`](tests/README.md) explains the layout
+and the two adversarial groups. Fixtures are synthetic by policy: a ticker-like
+token beside a currency amount, a balance line, a holdings table, an oversized
+SQLite backup. The real incident data that shaped them is never published.
 
 ## Credits
 
