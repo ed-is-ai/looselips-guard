@@ -1,16 +1,35 @@
 {
   "name": "looselips-guard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Stops your coding agent publishing your data to the world - a PreToolUse egress guard",
-  "bin": { "looselips-guard": "cli.js" },
-  "files": ["cli.js", "looselips_guard.py", "gitleaks_rules.py"],
+  "bin": {
+    "looselips-guard": "cli.js"
+  },
+  "files": [
+    "cli.js",
+    "looselips_guard.py",
+    "gitleaks_rules.py"
+  ],
   "scripts": {
     "prepack": "cp ../../looselips_guard.py ../../gitleaks_rules.py .",
     "test": "cp ../../looselips_guard.py ../../gitleaks_rules.py . && node cli.js nonsense; test $? -eq 1"
   },
-  "engines": { "node": ">=16" },
+  "engines": {
+    "node": ">=16"
+  },
   "license": "MIT",
   "homepage": "https://github.com/ed-is-ai/looselips-guard",
-  "repository": { "type": "git", "url": "git+https://github.com/ed-is-ai/looselips-guard.git" },
-  "keywords": ["security", "egress", "dlp", "claude-code", "hooks", "secrets", "gitleaks"]
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ed-is-ai/looselips-guard.git"
+  },
+  "keywords": [
+    "security",
+    "egress",
+    "dlp",
+    "claude-code",
+    "hooks",
+    "secrets",
+    "gitleaks"
+  ]
 }
