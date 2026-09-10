@@ -1,6 +1,7 @@
 __pycache__/
 .looselips-guard.json
 .looselips-guard.list
+.looselips-guard.snooze
 
 # copied in at publish time by packages/looselips-guard prepack
 /packages/looselips-guard/looselips_guard.py

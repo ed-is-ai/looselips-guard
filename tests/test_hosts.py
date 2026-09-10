@@ -46,6 +46,18 @@ def run_tests():
         assert _pipe({"tool_name": "notion-create_page",
                       "tool_input": {"body": LEAKS[0]}, "cwd": tmp}).returncode == 0
 
+        # snooze: an open window allows; fail-shut, so a stale/absent one blocks
+        import os
+        snz = os.path.join(tmp, ".looselips-guard.snooze")
+        ev = {"tool_input": {"command": leak}, "cwd": tmp}
+        open(snz, "w").write(str(__import__("time").time() + 300))
+        assert _pipe(ev).returncode == 0
+        open(snz, "w").write(str(__import__("time").time() - 1))   # expired
+        assert _pipe(ev).returncode == 2
+        open(snz, "w").write("garbage")
+        assert _pipe(ev).returncode == 2
+        os.remove(snz)
+
 
 if __name__ == "__main__":
     run_tests()
