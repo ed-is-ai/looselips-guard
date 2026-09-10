@@ -389,10 +389,12 @@ def check(command, cwd, config):
         texts, unreadable = curl_payloads(argv, cwd)
         for t in texts:
             hits(t, "request")
+        hits(" ".join(argv), "command")   # also scan the raw line, in case parsing missed a flag
         for u in unreadable:
             findings.append(f"request body not readable, cannot scan: {u}")
     elif argv and argv[0] in ("scp", "rsync"):
         limit = config.get("max_added_file_bytes", DEFAULT_MAX_BYTES)
+        hits(" ".join(argv), "command")
         for src in scp_rsync_sources(argv):
             p = src if os.path.isabs(src) else os.path.join(cwd, src)
             if os.path.isdir(p):
