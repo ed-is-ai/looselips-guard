@@ -26,7 +26,7 @@ agent publishing your data to the world.** It blocks a command *before it runs*
 when what's leaving the machine has something in it that shouldn't go: a banned
 string from your denylist, a credential, or a suspiciously big file that's
 probably a database dump. They all run in the one hook, in a single pass over
-the payload, before the command executes — the credential check is
+the payload, before it executes — the credential check is
 [gitleaks](https://github.com/gitleaks/gitleaks)' 221 secret-detection rules
 ported to run in-process, not a separate scanner you install or invoke.
 
@@ -279,31 +279,12 @@ items found across 258 issues and 306 PRs, with zero false positives.
 - `sources` — pull entries from a file instead, re-read on every scan:
   `txt` (path, one value per line, `#` comments), `csv` (path + column),
   `sqlite` (path + query), `env` (path, the value side of each `KEY=value`).
-- `patterns` — regexes, matched raw (you write your own anchors), for when
-  you want a *format* rather than a list: `\bAcct-\d{8}\b`, an internal hostname
-  suffix. This is the one place generic-regex risk is yours to own — see the
-  warning above. `looselips-guard add --regex '<pattern>'` appends one;
-  `add --like 'Acct-99001122'` derives `\bAcct-\d{8}\b` from an example and
-  appends that. A pattern that won't compile is warned about on stderr and
-  skipped, never fatal. Empty by default — nothing is added unless you ask.
-
-There is no shipped generic-PII pack, on purpose (see the box above for why they
-backfire). What there is: a few opt-in **presets** of format-based patterns you
-can pull in as a head start. `looselips-guard presets` prints them with sources;
-nothing is added until you run `add --preset`.
-
-| preset | patterns | from |
-|---|---|---|
-| `internal` | RFC 1918 IPs (`10/8`, `172.16/12`, `192.168/16`); `*.internal`/`*.corp`/`*.intranet`/`*.lan` | [RFC 1918](https://datatracker.ietf.org/doc/html/rfc1918); `.internal` is [ICANN-reserved](https://www.icann.org/en/board-activities-and-meetings/materials/approved-resolutions-special-meeting-of-the-icann-board-24-07-2024-en#section2.a) for private use |
-| `cloud` | `arn:aws:…:<acct>:…`; `s3://…` URIs | [AWS ARN format](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference-arns.html) |
-| `k8s` | `*.svc.cluster.local`, `*.pod.cluster.local` | [Kubernetes cluster DNS](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/) |
-
-```bash
-looselips-guard add --preset internal      # pull one in; run again for another
-```
-
-Presets are a starting point, not a policy — review and trim them to your
-environment. They're never added by `init`.
+- `patterns` — regexes, matched raw (you write your own anchors), for a *format*
+  rather than a list: `\bAcct-\d{8}\b`, an internal hostname suffix. This is the
+  one place generic-regex risk is yours to own — see the warning above.
+  `add --regex '<pattern>'` appends one; `add --like 'Acct-99001122'` derives
+  `\bAcct-\d{8}\b` from an example. A pattern that won't compile is warned about
+  on stderr and skipped, never fatal. Empty by default.
 - `allow` — collision list, for tickers that are also words (`ALL`, `ON`, `CAT`).
   Matching is case-sensitive with word boundaries, which removes most collisions
   before this list is needed. `allow` does not apply to `patterns`.
@@ -316,6 +297,23 @@ environment. They're never added by `init`.
   Copilot's tool names are `<server>-<tool>` with no prefix, so the guard can't
   tell an MCP call from a built-in without this. On hosts that use the
   `mcp__<server>__<tool>` convention it's unnecessary.
+
+**Presets.** There is no shipped generic-PII pack, on purpose (see the box above
+for why they backfire). What there is: a few opt-in starter sets of format-based
+patterns. `looselips-guard presets` prints them with sources; nothing is added
+until you run `add --preset`, and `init` never adds them.
+
+| preset | patterns | from |
+|---|---|---|
+| `internal` | RFC 1918 IPs (`10/8`, `172.16/12`, `192.168/16`); `*.internal`/`*.corp`/`*.intranet`/`*.lan` | [RFC 1918](https://datatracker.ietf.org/doc/html/rfc1918); `.internal` is [ICANN-reserved](https://www.icann.org/en/board-activities-and-meetings/materials/approved-resolutions-special-meeting-of-the-icann-board-24-07-2024-en#section2.a) for private use |
+| `cloud` | `arn:aws:…:<acct>:…`; `s3://…` URIs | [AWS ARN format](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference-arns.html) |
+| `k8s` | `*.svc.cluster.local`, `*.pod.cluster.local` | [Kubernetes cluster DNS](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/) |
+
+```bash
+looselips-guard add --preset internal      # pull one in; run again for another
+```
+
+They're a starting point, not a policy — review and trim to your environment.
 
 Secrets are handled separately, by 221 rules ported from gitleaks, so there is
 **nothing to install**. Regenerate them with `scripts/port_gitleaks_rules.py`.
@@ -380,7 +378,9 @@ protection is best-effort by construction, and says so.
   is worse than refusing it, so outbound blocks and never edits.
 - MCP calls on Copilot when `mcp_servers` isn't set — there's no tool-name prefix
   to detect them automatically, so you have to name the servers.
-- Other outbound tools — `scp`, `rsync`, a raw `nc`. The matcher is built to extend.
+- Other file-transfer tools — `scp` and `rsync` (copy to a remote host over SSH),
+  `nc`/netcat (pipe raw bytes to any host:port). They exfiltrate the same way but
+  aren't matched yet; the matcher is built to extend.
 
 ## Development
 
