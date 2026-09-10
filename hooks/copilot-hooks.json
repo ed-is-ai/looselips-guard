@@ -5,7 +5,7 @@
       {
         "type": "command",
         "bash": "looselips-guard",
-        "matcher": "bash|shell"
+        "matcher": "bash|shell|.+-(?:create|post|send|comment|publish|upload|write|update|append|patch)\\b.*"
       }
     ]
   }

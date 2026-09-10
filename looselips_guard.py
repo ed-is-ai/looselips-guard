@@ -239,6 +239,50 @@ def git_push_diff(cwd):
     return diff[:DIFF_CAP]                     # ponytail: cap the scan, huge diffs are rare
 
 
+def _scan_file(path, label, limit, hits, findings):
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return
+    if size > limit:
+        findings.append(f"{label}: {size} bytes exceeds limit {limit}")
+        return
+    try:
+        with open(path, errors="replace") as f:
+            hits(f.read(), label)
+    except OSError:
+        pass
+
+
+# flags that consume the next arg, for scp and rsync
+_SCP_ARG_FLAGS = {"-P", "-p", "-i", "-o", "-c", "-F", "-J", "-l", "-S", "-e",
+                  "--rsh", "--port", "--exclude", "--include", "--files-from",
+                  "--bwlimit", "--timeout", "--rsync-path", "--log-file"}
+
+
+def _is_remote(arg):
+    # user@host:path or host:path or rsync://host/... - a colon before any slash
+    return bool(re.match(r"[\w.-]+@[\w.-]+:", arg) or re.match(r"rsync://", arg)
+                or re.match(r"[\w.-]+:(?!\\)", arg) and "/" not in arg.split(":", 1)[0])
+
+
+def scp_rsync_sources(argv):
+    """Local source paths for an scp/rsync that uploads to a remote. Empty if the
+    transfer is a download or purely local."""
+    pos, skip = [], False
+    for a in argv[1:]:
+        if skip:
+            skip = False
+            continue
+        if a in _SCP_ARG_FLAGS:
+            skip = True
+        elif not a.startswith("-"):
+            pos.append(a)
+    if len(pos) < 2 or not _is_remote(pos[-1]):
+        return []
+    return [p for p in pos[:-1] if not _is_remote(p)]
+
+
 # --- main -----------------------------------------------------------------
 
 class _Scanner:
@@ -333,19 +377,7 @@ def check(command, cwd, config):
     elif argv[:2] == ["git", "add"]:
         limit = config.get("max_added_file_bytes", DEFAULT_MAX_BYTES)
         for rel in git_added_files(argv, cwd):
-            p = os.path.join(cwd, rel)
-            try:
-                size = os.path.getsize(p)
-            except OSError:
-                continue
-            if size > limit:
-                findings.append(f"{rel}: {size} bytes exceeds limit {limit}")
-                continue
-            try:
-                with open(p, errors="replace") as f:
-                    hits(f.read(), rel)
-            except OSError:
-                pass
+            _scan_file(os.path.join(cwd, rel), rel, limit, hits, findings)
     elif argv[:2] == ["git", "commit"]:
         for text in payloads(argv[2:], cwd)[0]:
             hits(text, "commit message")
@@ -359,6 +391,26 @@ def check(command, cwd, config):
             hits(t, "request")
         for u in unreadable:
             findings.append(f"request body not readable, cannot scan: {u}")
+    elif argv and argv[0] in ("scp", "rsync"):
+        limit = config.get("max_added_file_bytes", DEFAULT_MAX_BYTES)
+        for src in scp_rsync_sources(argv):
+            p = src if os.path.isabs(src) else os.path.join(cwd, src)
+            if os.path.isdir(p):
+                for root, _, files in os.walk(p):
+                    for name in files:
+                        fp = os.path.join(root, name)
+                        _scan_file(fp, os.path.relpath(fp, cwd), limit, hits, findings)
+            else:
+                _scan_file(p, src, limit, hits, findings)
+    elif any(a in ("nc", "ncat", "netcat") for a in argv) and re.search(r"\b\d{2,5}\b", command):
+        hits(command, "netcat command")
+        for f in re.findall(r"(?:\bcat|<)\s+([^\s|<>&;]+)", command):
+            p = f if os.path.isabs(f) else os.path.join(cwd, f)
+            try:
+                with open(p, errors="replace") as fh:
+                    hits(fh.read(), f)
+            except OSError:
+                pass
     return findings
 
 
@@ -396,13 +448,16 @@ def _hosts(cmd):
                     "events": {"PreToolUse": claude}},
         "copilot": {"path": ".github/hooks/looselips-guard.json",
                     "home_path": ".copilot/hooks/looselips-guard.json", "version": 1,
-                    "events": {"PreToolUse":
-                               {"type": "command", "bash": cmd, "matcher": "bash|shell"}}},
+                    # Copilot MCP tools are "<server>-<tool>" with no prefix; the
+                    # verb suffix fires the hook, "mcp_servers" in the config decides.
+                    "events": {"PreToolUse": {"type": "command", "bash": cmd, "matcher":
+                        r"bash|shell|.+-(?:create|post|send|comment|publish|upload|"
+                        r"write|update|append|patch)\b.*"}}},
         "cursor":  {"path": ".cursor/hooks.json", "version": 1,
                     "events": {"beforeShellExecution": {"command": cmd, "failClosed": True},
                                "beforeMCPExecution": {"command": cmd, "failClosed": True}}},
         "hermes":  {"path": ".hermes/config.yaml", "yaml":
-                    f'hooks:\n  pre_tool_call:\n    - matcher: "terminal"\n'
+                    f'hooks:\n  pre_tool_call:\n    - matcher: "terminal|^mcp__"\n'
                     f'      command: "{cmd}"\n      timeout: 5\n      fail_closed: true\n'},
     }
 
@@ -482,6 +537,40 @@ def regex_from_example(s):
     return r"\b" + "".join(parts) + r"\b"
 
 
+# Optional starter regexes, added only when you ask (`add --preset <name>`; see
+# them with `looselips-guard presets`). Deliberately tiny: format-based, low
+# false-positive, and not already covered by the gitleaks credential rules.
+# Everything specific to you should come from your own data via `add` /
+# `add --like`, not a generic pack.
+PRESETS = {
+    "internal": {
+        "source": "RFC 1918 private IPv4 ranges; .internal is ICANN-reserved for "
+                  "private use, .corp/.intranet/.lan are convention",
+        "patterns": [
+            r"\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
+            r"\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b",
+            r"\b192\.168\.\d{1,3}\.\d{1,3}\b",
+            r"\b[\w.-]+\.(?:internal|corp|intranet|lan)\b",
+        ],
+    },
+    "cloud": {
+        "source": "AWS ARN format (docs.aws.amazon.com/IAM/latest/UserGuide/reference-arns.html); "
+                  "s3:// URIs",
+        "patterns": [
+            r"\barn:aws:[a-z0-9-]+:[a-z0-9-]*:\d{12}:\S+",
+            r"\bs3://[a-z0-9.\-]{3,63}/\S*",
+        ],
+    },
+    "k8s": {
+        "source": "Kubernetes cluster DNS (kubernetes.io/docs/concepts/services-networking/dns-pod-service)",
+        "patterns": [
+            r"\b[\w.-]+\.svc\.cluster\.local\b",
+            r"\b[\w.-]+\.pod\.cluster\.local\b",
+        ],
+    },
+}
+
+
 def _add_patterns(pats):
     cfg = os.path.join(os.getcwd(), CONFIG_NAME)
     data = json.load(open(cfg)) if os.path.exists(cfg) else dict(CONFIG_TEMPLATE)
@@ -495,8 +584,27 @@ def _add_patterns(pats):
     return 0
 
 
-def cmd_add(values, as_regex=False, like=False):
+def cmd_presets():
+    for name, p in PRESETS.items():
+        print(f"{name}  ({p['source']})")
+        for rx in p["patterns"]:
+            print(f"    {rx}")
+    print(f"\nadd one with:  looselips-guard add --preset "
+          + "|".join(PRESETS) + "\n(format-based starters - review and trim to your environment)")
+    return 0
+
+
+def cmd_add(values, as_regex=False, like=False, preset=None):
+    if preset:
+        pats = PRESETS[preset]["patterns"]
+        print(f"  preset {preset!r}: {len(pats)} patterns from {PRESETS[preset]['source']}")
+        return _add_patterns(pats)
+
     values = [v.strip() for v in values if v.strip()]
+    if not values:
+        print("usage: looselips-guard add VALUE... | --regex RX... | --like EX... "
+              "| --preset " + "|".join(PRESETS), file=sys.stderr)
+        return 1
 
     if as_regex:                      # comma may be a quantifier \d{2,4}, don't split
         for p in values:
@@ -565,15 +673,18 @@ def _parser():
                    help="write the home-directory config, not the project one")
 
     a = sub.add_parser("add", help="add terms to the blocklist")
-    a.add_argument("value", nargs="+",
+    a.add_argument("value", nargs="*",
                    help="term to block; args or a comma-separated list")
     g = a.add_mutually_exclusive_group()
     g.add_argument("--regex", action="store_true",
                    help='args are regexes -> config "patterns" (you anchor your own)')
     g.add_argument("--like", action="store_true",
                    help="args are example values; derive a regex from each (digit runs -> \\d{n})")
+    g.add_argument("--preset", choices=list(PRESETS),
+                   help="add a small vetted starter set of format patterns")
 
     sub.add_parser("check", help="self-test the install")
+    sub.add_parser("presets", help="show the built-in regex starter sets")
     sub.add_parser("redact", help="(not implemented yet)")
     return p
 
@@ -584,9 +695,11 @@ def main():
         if args.cmd == "init":
             return cmd_init(args.host, args.use_home)
         if args.cmd == "add":
-            return cmd_add(args.value, args.regex, args.like)
+            return cmd_add(args.value, args.regex, args.like, args.preset)
         if args.cmd == "check":
             return cmd_check()
+        if args.cmd == "presets":
+            return cmd_presets()
         if args.cmd == "redact":
             print("looselips-guard redact: not implemented yet - see the design spec",
                   file=sys.stderr)
@@ -601,20 +714,26 @@ def main():
     except (json.JSONDecodeError, ValueError):
         return 0                      # unparseable event: nothing to scan, allow
     cwd = event.get("cwd") or os.getcwd()
+    config = load_config(cwd)
     tin = event.get("tool_input") if isinstance(event.get("tool_input"), (dict, str)) else {}
     # tool_input.command: Claude Code, Codex, Copilot, Hermes. command: Cursor's
     # beforeShellExecution puts it top-level. cwd is top-level everywhere.
     command = (tin.get("command") if isinstance(tin, dict) else None) or event.get("command", "")
     tool = event.get("tool_name", "")
+    # Copilot names MCP tools "<server>-<tool>" with no prefix, so it can't be
+    # spotted by shape - list your servers in "mcp_servers" to have them scanned.
+    is_mcp = (tool.startswith("mcp__") or bool(event.get("mcp_server_name"))
+              or any(tool.startswith(s + "-") or tool.startswith(s + "__")
+                     for s in config.get("mcp_servers", [])))
     if command:
-        findings = check(command, cwd, load_config(cwd))
-    elif tool.startswith("mcp__") or event.get("mcp_server_name"):
-        findings = check_mcp(tool, tin, cwd, load_config(cwd))
+        findings = check(command, cwd, config)
+    elif is_mcp:
+        findings = check_mcp(tool, tin, cwd, config)
     else:
         return 0
     if not findings:
         return 0
-    what = "call" if (tool.startswith("mcp__") or event.get("mcp_server_name")) else "command"
+    what = "call" if is_mcp else "command"
     tail = (f"\nIf this is deliberate and correct, rerun it prefixed with {OVERRIDE}"
             if what == "command" else
             f"\nIf this is deliberate, set {OVERRIDE} in the environment, or narrow "
