@@ -139,12 +139,12 @@ Four steps in one pass, and the host-specific part is almost nothing.
   │  host adapter     │   later, block with `exit 2` — that's the whole of it
   └─────────┬─────────┘
             ▼
-  ┌───────────────────┐   is this a write to the outside world?
-  │  matcher          │   gh issue/pr, gh api mutation, git add, git commit
+  ┌───────────────────┐   is this a write to the outside world?  gh issue/pr,
+  │  matcher          │   gh api mutation, git add/commit/push, curl/wget, MCP writes
   └─────────┬─────────┘
             ▼
-  ┌───────────────────┐   --body-file is resolved and read from disk;
-  │  payload          │   git add is resolved via --dry-run
+  ┌───────────────────┐   --body-file and curl @file are read from disk; git add
+  │  payload          │   via --dry-run, git push via rev-list; MCP args walked
   └─────────┬─────────┘
             ▼
   ┌───────────────────┐   denylist + your regex patterns · 221 secret
@@ -274,6 +274,10 @@ items found across 258 issues and 306 PRs, with zero false positives.
   Matching is case-sensitive with word boundaries, which removes most collisions
   before this list is needed. `allow` does not apply to `patterns`.
 - `max_added_file_bytes` — files larger than this cannot be staged (default 500 KB).
+- `mcp_tools` — regex of MCP tool names whose arguments get scanned. Default is a
+  set of write verbs (`create|post|send|comment|publish|upload|write|update|…`)
+  so reading your own data through an MCP server doesn't trip the denylist. Set
+  `".*"` to scan every MCP call, `""` or `false` to scan none.
 
 Secrets are handled separately, by 221 rules ported from gitleaks, so there is
 **nothing to install**. Regenerate them with `scripts/port_gitleaks_rules.py`.
@@ -288,6 +292,12 @@ Secrets are handled separately, by 221 rules ported from gitleaks, so there is
 - `gh api` with a mutation, `POST`, or any `-f`/`-F` field
 - `git add` — every path it would actually stage, by size and by content
 - `git commit -m`
+- `git push` — the diff of commits not yet on any remote (capped at 2 MB)
+- `curl` / `wget` — request body (`-d`/`--data*`/`-F`/`-T`/`--json`/`--post-data`,
+  inline or `@file`), and the URL itself
+- **MCP tool calls** whose name matches a write verb (`create_issue`,
+  `post_message`, …) — every string in the arguments. Tune with `mcp_tools`
+  (see [Config](#config)); reads like `query` or `list_*` are skipped by default
 
 ## Override
 
@@ -298,6 +308,9 @@ exactly what matched and where, and you re-run deliberately:
 ```bash
 LOOSELIPS_GUARD_OK=1 gh issue create --title "…" --body-file issue.md
 ```
+
+For an MCP call there's no command to prefix — export `LOOSELIPS_GUARD_OK=1` for
+the session, or narrow `mcp_tools`.
 
 Every leak in the motivating incident was accidental. Making the deliberate case
 cheap and the accidental case impossible is the whole design goal.
@@ -327,7 +340,13 @@ protection is best-effort by construction, and says so.
   agent-initiated calls.
 - Rewriting outbound payloads. Silently altering an issue body the agent wrote
   is worse than refusing it, so outbound blocks and never edits.
-- `curl`/`wget`, MCP calls, `git push`. The matcher is built to extend.
+- MCP calls on hosts where the hook isn't wired for them — `init` does Claude,
+  Codex and Cursor (`beforeMCPExecution`); Copilot, Hermes and OpenClaw only get
+  the shell path for now.
+- An MCP call can't be re-run with an inline `LOOSELIPS_GUARD_OK=1` prefix the
+  way a shell command can — set it in the environment instead, or narrow
+  `mcp_tools`.
+- Other outbound tools — `scp`, `rsync`, a raw `nc`. The matcher is built to extend.
 
 ## Development
 

@@ -93,6 +93,30 @@ def main():
         assert run(f"git commit -m {json.dumps(LEAKS[0])}")
         assert not run("git commit -m 'fix currency resolution'")
 
+        # curl / wget request bodies and URLs
+        open(os.path.join(tmp, "post.json"), "w").write(LEAKS[3])
+        assert run(f'curl -X POST https://x.test/i -d {json.dumps(LEAKS[0])}')
+        assert run("curl https://x.test/i --data @post.json")
+        assert run("wget --post-data 'holdings: ZQXF 10' https://x.test/i")
+        assert run("curl 'https://x.test/track?sym=ZQXF'"), "missed leak in URL"
+        assert not run("curl https://x.test/status")
+
+        # git push: diff of unpushed commits
+        subprocess.run(["git", "commit", "--allow-empty", "-qm", "base"], cwd=tmp)
+        subprocess.run(["git", "update-ref", "refs/remotes/origin/main", "HEAD"], cwd=tmp)
+        open(os.path.join(tmp, "leak.txt"), "w").write("holding ZQXF at 812.40 GBP")
+        subprocess.run(["git", "add", "leak.txt"], cwd=tmp)
+        subprocess.run(["git", "commit", "-qm", "wip"], cwd=tmp)
+        assert run("git push"), "missed leak in unpushed diff"
+        assert run("git push origin HEAD")
+
+        # MCP tool calls: write-verb tools scanned, reads not
+        mcp = lambda name, args: looselips_guard.check_mcp(name, args, tmp, cfg)
+        assert mcp("mcp__github__create_issue", {"title": "t", "body": LEAKS[0]})
+        assert mcp("mcp__slack__post_message", {"text": f"balance for {LEDGER[0]}"})
+        assert not mcp("mcp__db__query", {"sql": "SELECT * FROM t WHERE s='ZQXF'"}), "read scanned"
+        assert not mcp("mcp__github__create_issue", {"title": "t", "body": "all fine"})
+
         # end to end: the shape Claude Code, Codex and Copilot all send on stdin,
         # and the exit 2 all three read as a block
         script = os.path.join(os.path.dirname(__file__), "looselips_guard.py")
@@ -117,6 +141,17 @@ def main():
         cursor = json.dumps({"command": f"gh issue create --title t --body {json.dumps(LEAKS[2])}",
                              "cwd": tmp, "sandbox": False})
         assert subprocess.run([sys.executable, script], input=cursor,
+                              capture_output=True, text=True).returncode == 2
+
+        # MCP event on stdin (Claude/Codex shape) blocks on exit 2
+        mcpev = json.dumps({"tool_name": "mcp__github__create_issue",
+                 "tool_input": {"title": "t", "body": LEAKS[0]}, "cwd": tmp})
+        assert subprocess.run([sys.executable, script], input=mcpev,
+                              capture_output=True, text=True).returncode == 2
+        # Cursor's beforeMCPExecution: tool_input arrives as a JSON string
+        curmcp = json.dumps({"tool_name": "post_message", "mcp_server_name": "slack",
+                 "tool_input": json.dumps({"text": f"holding {LEDGER[0]}"}), "cwd": tmp})
+        assert subprocess.run([sys.executable, script], input=curmcp,
                               capture_output=True, text=True).returncode == 2
 
         # setup CLI: init merges without clobbering, add dedupes, both idempotent

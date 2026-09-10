@@ -185,7 +185,127 @@ def git_added_files(argv, cwd):
     return re.findall(r"^(?:add|remove) '(.+)'$", out.stdout, re.M)
 
 
+CURL_DATA = {"-d", "--data", "--data-raw", "--data-binary", "--data-ascii",
+             "--data-urlencode", "-F", "--form", "-T", "--upload-file",
+             "--post-data", "--post-file", "--json"}
+DIFF_CAP = 2_000_000
+
+
+def curl_payloads(argv, cwd):
+    """(texts, unreadable) for a curl/wget request body and its URLs."""
+    texts, unreadable = [], []
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        flag, _, inline = a.partition("=")
+        nxt = argv[i + 1] if i + 1 < len(argv) else ""
+        val = inline if (inline and a.startswith("--")) else nxt
+        if flag in CURL_DATA:
+            ref = val.lstrip("@<") if val[:1] in "@<" else None
+            if val[:1] in "@<" or flag in ("-T", "--upload-file", "--post-file"):
+                if (ref or val) == "-":
+                    unreadable.append("stdin")
+                else:
+                    p = ref or val
+                    p = p if os.path.isabs(p) else os.path.join(cwd, p)
+                    try:
+                        with open(p, errors="replace") as f:
+                            texts.append(f.read())
+                    except OSError as e:
+                        unreadable.append(f"{ref or val} ({e.strerror})")
+            else:
+                texts.append(val)
+            i += 1 if (inline and a.startswith("--")) else 2
+            continue
+        if re.match(r"https?://", a):
+            texts.append(a)
+        i += 1
+    return texts, unreadable
+
+
+def git_push_diff(cwd):
+    """Diff of commits not yet on any remote - the payload a push would send."""
+    rev = subprocess.run(["git", "rev-list", "HEAD", "--not", "--remotes", "--reverse"],
+                         cwd=cwd, capture_output=True, text=True)
+    commits = rev.stdout.split()
+    if not commits:
+        return ""
+    base = commits[0] + "^"
+    if subprocess.run(["git", "rev-parse", "--verify", "-q", base], cwd=cwd,
+                      capture_output=True).returncode != 0:
+        base = commits[0]                      # first commit is the repo root
+    diff = subprocess.run(["git", "diff", f"{base}..HEAD"], cwd=cwd,
+                          capture_output=True, text=True).stdout
+    return diff[:DIFF_CAP]                     # ponytail: cap the scan, huge diffs are rare
+
+
 # --- main -----------------------------------------------------------------
+
+class _Scanner:
+    """Runs denylist + regex patterns + secret rules over pieces of text,
+    deduping repeats. Shared by the shell path and the MCP path."""
+
+    def __init__(self, config, cwd):
+        self.config, self.cwd = config, cwd
+        self._terms = self._pats = None
+        self.seen = set()
+        self.findings = []
+
+    def hits(self, text, where):
+        if self._terms is None:
+            self._terms = denylist(self.config, self.cwd)
+            self._pats = compiled_patterns(self.config)
+        for t in scan(text, self._terms):
+            if t not in self.seen:                # same value in body and command
+                self.seen.add(t)
+                self.findings.append(f"{where}: {t!r}")
+        for rx in self._pats:
+            key = f"pat:{rx.pattern}"
+            if key not in self.seen and rx.search(text):
+                self.seen.add(key)
+                self.findings.append(f"{where}: matches /{rx.pattern}/")
+        for rule_id in secret_findings(text):
+            if rule_id not in self.seen:
+                self.seen.add(rule_id)
+                self.findings.append(f"{where}: secret matching {rule_id}")
+
+
+# MCP tool names worth scanning: writes to the outside world, not reads. Override
+# with "mcp_tools" in the config ("" or false to disable, ".*" to scan every MCP call).
+DEFAULT_MCP_TOOLS = (r"create|post|send|comment|publish|upload|"
+                     r"write|update|append|patch|add_|put_|delete")
+
+
+def _walk_strings(obj, prefix):
+    if isinstance(obj, str):
+        yield prefix, obj
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            yield from _walk_strings(v, f"{prefix}.{k}")
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            yield from _walk_strings(v, f"{prefix}[{i}]")
+
+
+def check_mcp(tool, tool_input, cwd, config):
+    """Scan an MCP tool call's arguments. Only tools whose name looks like a
+    write are scanned (see DEFAULT_MCP_TOOLS), so reading your own data via MCP
+    doesn't trip the denylist."""
+    if os.environ.get("LOOSELIPS_GUARD_OK"):        # only escape hatch for an MCP call
+        return []
+    pattern = config.get("mcp_tools", DEFAULT_MCP_TOOLS)
+    if not pattern or not re.search(pattern, tool, re.I):
+        return []
+    if isinstance(tool_input, str):                # Cursor passes json params as a string
+        try:
+            tool_input = json.loads(tool_input)
+        except ValueError:
+            tool_input = {"input": tool_input}
+    s = _Scanner(config, cwd)
+    for where, val in _walk_strings(tool_input, tool):
+        s.hits(val, where)
+    return s.findings
+
 
 def check(command, cwd, config):
     """Return a list of human-readable findings."""
@@ -197,28 +317,9 @@ def check(command, cwd, config):
         return []
     while argv and re.match(r"^\w+=", argv[0]):  # strip env-var prefixes
         argv.pop(0)
-    findings = []
-    terms = pats = None
-    seen = set()
-
-    def hits(text, where):
-        nonlocal terms, pats
-        if terms is None:
-            terms = denylist(config, cwd)
-            pats = compiled_patterns(config)
-        for t in scan(text, terms):
-            if t not in seen:                     # same value in body and command
-                seen.add(t)
-                findings.append(f"{where}: {t!r}")
-        for rx in pats:
-            key = f"pat:{rx.pattern}"
-            if key not in seen and rx.search(text):
-                seen.add(key)
-                findings.append(f"{where}: matches /{rx.pattern}/")
-        for rule_id in secret_findings(text):
-            if rule_id not in seen:
-                seen.add(rule_id)
-                findings.append(f"{where}: secret matching {rule_id}")
+    _s = _Scanner(config, cwd)
+    findings = _s.findings
+    hits = _s.hits
 
     if is_gh_write(argv) and argv[1] == "api":
         hits(" ".join(argv), "command")
@@ -248,6 +349,16 @@ def check(command, cwd, config):
     elif argv[:2] == ["git", "commit"]:
         for text in payloads(argv[2:], cwd)[0]:
             hits(text, "commit message")
+    elif argv[:2] == ["git", "push"]:
+        diff = git_push_diff(cwd)
+        if diff:
+            hits(diff, "git push (unpushed diff)")
+    elif argv and argv[0] in ("curl", "wget"):
+        texts, unreadable = curl_payloads(argv, cwd)
+        for t in texts:
+            hits(t, "request")
+        for u in unreadable:
+            findings.append(f"request body not readable, cannot scan: {u}")
     return findings
 
 
@@ -275,17 +386,21 @@ def _invocation():
 
 
 def _hosts(cmd):
-    claude = {"matcher": "Bash", "hooks": [{"type": "command", "command": cmd}]}
+    # matcher covers the shell tool and MCP tool names, so `gh`/`git`/`curl` and
+    # write-y MCP calls both reach the hook.
+    claude = {"matcher": "Bash|mcp__.*", "hooks": [{"type": "command", "command": cmd}]}
     return {
-        "claude":  {"path": ".claude/settings.json", "event": "PreToolUse", "entry": claude},
-        "codex":   {"path": ".codex/hooks.json", "event": "PreToolUse", "entry": claude},
+        "claude":  {"path": ".claude/settings.json",
+                    "events": {"PreToolUse": claude}},
+        "codex":   {"path": ".codex/hooks.json",
+                    "events": {"PreToolUse": claude}},
         "copilot": {"path": ".github/hooks/looselips-guard.json",
-                    "home_path": ".copilot/hooks/looselips-guard.json",
-                    "version": 1, "event": "PreToolUse",
-                    "entry": {"type": "command", "bash": cmd, "matcher": "bash|shell"}},
+                    "home_path": ".copilot/hooks/looselips-guard.json", "version": 1,
+                    "events": {"PreToolUse":
+                               {"type": "command", "bash": cmd, "matcher": "bash|shell"}}},
         "cursor":  {"path": ".cursor/hooks.json", "version": 1,
-                    "event": "beforeShellExecution",
-                    "entry": {"command": cmd, "failClosed": True}},
+                    "events": {"beforeShellExecution": {"command": cmd, "failClosed": True},
+                               "beforeMCPExecution": {"command": cmd, "failClosed": True}}},
         "hermes":  {"path": ".hermes/config.yaml", "yaml":
                     f'hooks:\n  pre_tool_call:\n    - matcher: "terminal"\n'
                     f'      command: "{cmd}"\n      timeout: 5\n      fail_closed: true\n'},
@@ -311,10 +426,15 @@ def _wire_json(path, host):
             data = json.load(f) or {}
     if "version" in host:
         data.setdefault("version", host["version"])
-    arr = data.setdefault("hooks", {}).setdefault(host["event"], [])
-    if "looselips" in json.dumps(arr):          # hyphen or underscore, any path
+    hooks = data.setdefault("hooks", {})
+    added = False
+    for event, entry in host["events"].items():
+        arr = hooks.setdefault(event, [])
+        if "looselips" not in json.dumps(arr):  # hyphen or underscore, any path
+            arr.append(entry)
+            added = True
+    if not added:
         return "already wired"
-    arr.append(host["entry"])
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
@@ -480,19 +600,27 @@ def main():
         event = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
         return 0                      # unparseable event: nothing to scan, allow
+    cwd = event.get("cwd") or os.getcwd()
+    tin = event.get("tool_input") if isinstance(event.get("tool_input"), (dict, str)) else {}
     # tool_input.command: Claude Code, Codex, Copilot, Hermes. command: Cursor's
     # beforeShellExecution puts it top-level. cwd is top-level everywhere.
-    command = event.get("tool_input", {}).get("command") or event.get("command", "")
-    cwd = event.get("cwd") or os.getcwd()
-    if not command:
+    command = (tin.get("command") if isinstance(tin, dict) else None) or event.get("command", "")
+    tool = event.get("tool_name", "")
+    if command:
+        findings = check(command, cwd, load_config(cwd))
+    elif tool.startswith("mcp__") or event.get("mcp_server_name"):
+        findings = check_mcp(tool, tin, cwd, load_config(cwd))
+    else:
         return 0
-    findings = check(command, cwd, load_config(cwd))
     if not findings:
         return 0
-    print("looselips-guard blocked this command - sensitive data would leave the machine:",
-          *[f"  - {f}" for f in findings],
-          f"\nIf this is deliberate and correct, rerun it prefixed with {OVERRIDE}",
-          sep="\n", file=sys.stderr)
+    what = "call" if (tool.startswith("mcp__") or event.get("mcp_server_name")) else "command"
+    tail = (f"\nIf this is deliberate and correct, rerun it prefixed with {OVERRIDE}"
+            if what == "command" else
+            f"\nIf this is deliberate, set {OVERRIDE} in the environment, or narrow "
+            '"mcp_tools" in .looselips-guard.json.')
+    print(f"looselips-guard blocked this {what} - sensitive data would leave the machine:",
+          *[f"  - {f}" for f in findings], tail, sep="\n", file=sys.stderr)
     return 2
 
 
