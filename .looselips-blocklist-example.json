@@ -2,6 +2,7 @@
   "values": ["Acct-99001122", "my.real@email.example"],
   "patterns": ["\\bAcct-\\d{8}\\b", "\\b\\w+\\.corp\\.internal\\b"],
   "mcp_tools": "create|post|send|comment|publish|upload|write|update|append|patch",
+  "mcp_servers": ["github", "slack"],
   "allow": ["T", "U", "AR", "API", "CAT", "ALL", "ON", "GO"],
   "sources": [
     {"type": "txt", "path": ".looselips-guard.list"},

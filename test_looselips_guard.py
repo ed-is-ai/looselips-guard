@@ -15,7 +15,7 @@ import looselips_guard
 LEDGER = ["ZQXF", "VNTR", "ALL", "ON", "BRPL"]
 ALLOW = ["ALL", "ON"]
 CONFIG = {"values": ["Acct-99001122"], "allow": ALLOW,
-          "patterns": [r"\bREF-\d{6}\b"],
+          "patterns": [r"\bREF-\d{6}\b"], "mcp_servers": ["github", "slack"],
           "sources": [{"type": "csv", "path": "holdings.csv", "column": "symbol"},
                       {"type": "txt", "path": ".looselips-guard.list"}]}
 
@@ -153,6 +153,16 @@ def main():
                  "tool_input": json.dumps({"text": f"holding {LEDGER[0]}"}), "cwd": tmp})
         assert subprocess.run([sys.executable, script], input=curmcp,
                               capture_output=True, text=True).returncode == 2
+        # Copilot: flat "<server>-<tool>" name, recognised via mcp_servers config
+        cop = json.dumps({"tool_name": "github-create_issue",
+                 "tool_input": {"title": "t", "body": LEAKS[0]}, "cwd": tmp})
+        assert subprocess.run([sys.executable, script], input=cop,
+                              capture_output=True, text=True).returncode == 2
+        # a server not in mcp_servers is left alone
+        other = json.dumps({"tool_name": "notion-create_page",
+                 "tool_input": {"body": LEAKS[0]}, "cwd": tmp})
+        assert subprocess.run([sys.executable, script], input=other,
+                              capture_output=True, text=True).returncode == 0
 
         # setup CLI: init merges without clobbering, add dedupes, both idempotent
         with tempfile.TemporaryDirectory() as proj:

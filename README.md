@@ -97,17 +97,23 @@ the one thing worth knowing:
 |---|---|---|
 | `claude`  | `.claude/settings.json` | or `/plugin install looselips-guard@reinvently` in Claude Code |
 | `codex`   | `~/.codex/hooks.json` | same event shape as Claude, `exit 2` blocks |
-| `copilot` | `.github/hooks/looselips-guard.json` | matcher `bash\|shell`; known bugs, not ours — plugin hooks don't always fire ([#2540](https://github.com/github/copilot-cli/issues/2540)), subagents ungated ([#2392](https://github.com/github/copilot-cli/issues/2392)) |
+| `copilot` | `.github/hooks/looselips-guard.json` | MCP needs `mcp_servers` set (below); known bugs, not ours — plugin hooks don't always fire ([#2540](https://github.com/github/copilot-cli/issues/2540)), subagents ungated ([#2392](https://github.com/github/copilot-cli/issues/2392)) |
 | `cursor`  | `~/.cursor/hooks.json` | `failClosed: true` — blocks on a slow hook instead of failing open |
 | `hermes`  | prints YAML for `~/.hermes/config.yaml` | shell tool is `terminal`; `fail_closed: true`, like Cursor |
 
 **MCP coverage.** MCP tool names use the same `mcp__<server>__<tool>` convention
 across Claude Code, Codex and Hermes, so `init` sets the matcher to
 `Bash|mcp__.*` / `terminal|^mcp__` and the guard scans write-y MCP calls there
-too. Cursor gets a separate `beforeMCPExecution` hook. The OpenClaw plugin
-forwards MCP calls as well (its ids are `<server>__<tool>`). Only **Copilot** is
-shell-only: its `preToolUse` does fire for MCP, but we haven't confirmed its MCP
-tool-naming or that `exit 2` blocks an MCP call there.
+too. Cursor gets a separate `beforeMCPExecution` hook; the OpenClaw plugin
+forwards MCP calls as well (ids are `<server>__<tool>`).
+
+**Copilot** names MCP tools `<server>-<tool>` with no prefix — nothing to key on
+by shape — so list the servers you want scanned in `mcp_servers` (see
+[Config](#config)). `init` already sets a matcher that fires the hook on
+write-verb tool names; `mcp_servers` is what decides whether the call is
+actually scanned, so an unlisted server or a built-in `write_file` is left
+alone. Its `preToolUse` is the current event (an older `toolCall` is gone) and
+`exit 2` denies.
 
 Two hosts need a hand because they have no shell-command hook:
 
@@ -306,6 +312,10 @@ environment. They're never added by `init`.
   set of write verbs (`create|post|send|comment|publish|upload|write|update|…`)
   so reading your own data through an MCP server doesn't trip the denylist. Set
   `".*"` to scan every MCP call, `""` or `false` to scan none.
+- `mcp_servers` — Copilot only. A list of MCP server names (`["github", "slack"]`).
+  Copilot's tool names are `<server>-<tool>` with no prefix, so the guard can't
+  tell an MCP call from a built-in without this. On hosts that use the
+  `mcp__<server>__<tool>` convention it's unnecessary.
 
 Secrets are handled separately, by 221 rules ported from gitleaks, so there is
 **nothing to install**. Regenerate them with `scripts/port_gitleaks_rules.py`.
@@ -368,9 +378,8 @@ protection is best-effort by construction, and says so.
   agent-initiated calls.
 - Rewriting outbound payloads. Silently altering an issue body the agent wrote
   is worse than refusing it, so outbound blocks and never edits.
-- MCP calls on Copilot — its MCP tool-naming and exit-2 blocking are unconfirmed,
-  so the matcher there stays shell-only (Claude, Codex, Cursor, Hermes and
-  OpenClaw all scan MCP writes).
+- MCP calls on Copilot when `mcp_servers` isn't set — there's no tool-name prefix
+  to detect them automatically, so you have to name the servers.
 - Other outbound tools — `scp`, `rsync`, a raw `nc`. The matcher is built to extend.
 
 ## Development

@@ -396,8 +396,11 @@ def _hosts(cmd):
                     "events": {"PreToolUse": claude}},
         "copilot": {"path": ".github/hooks/looselips-guard.json",
                     "home_path": ".copilot/hooks/looselips-guard.json", "version": 1,
-                    "events": {"PreToolUse":
-                               {"type": "command", "bash": cmd, "matcher": "bash|shell"}}},
+                    # Copilot MCP tools are "<server>-<tool>" with no prefix; the
+                    # verb suffix fires the hook, "mcp_servers" in the config decides.
+                    "events": {"PreToolUse": {"type": "command", "bash": cmd, "matcher":
+                        r"bash|shell|.+-(?:create|post|send|comment|publish|upload|"
+                        r"write|update|append|patch)\b.*"}}},
         "cursor":  {"path": ".cursor/hooks.json", "version": 1,
                     "events": {"beforeShellExecution": {"command": cmd, "failClosed": True},
                                "beforeMCPExecution": {"command": cmd, "failClosed": True}}},
@@ -659,20 +662,26 @@ def main():
     except (json.JSONDecodeError, ValueError):
         return 0                      # unparseable event: nothing to scan, allow
     cwd = event.get("cwd") or os.getcwd()
+    config = load_config(cwd)
     tin = event.get("tool_input") if isinstance(event.get("tool_input"), (dict, str)) else {}
     # tool_input.command: Claude Code, Codex, Copilot, Hermes. command: Cursor's
     # beforeShellExecution puts it top-level. cwd is top-level everywhere.
     command = (tin.get("command") if isinstance(tin, dict) else None) or event.get("command", "")
     tool = event.get("tool_name", "")
+    # Copilot names MCP tools "<server>-<tool>" with no prefix, so it can't be
+    # spotted by shape - list your servers in "mcp_servers" to have them scanned.
+    is_mcp = (tool.startswith("mcp__") or bool(event.get("mcp_server_name"))
+              or any(tool.startswith(s + "-") or tool.startswith(s + "__")
+                     for s in config.get("mcp_servers", [])))
     if command:
-        findings = check(command, cwd, load_config(cwd))
-    elif tool.startswith("mcp__") or event.get("mcp_server_name"):
-        findings = check_mcp(tool, tin, cwd, load_config(cwd))
+        findings = check(command, cwd, config)
+    elif is_mcp:
+        findings = check_mcp(tool, tin, cwd, config)
     else:
         return 0
     if not findings:
         return 0
-    what = "call" if (tool.startswith("mcp__") or event.get("mcp_server_name")) else "command"
+    what = "call" if is_mcp else "command"
     tail = (f"\nIf this is deliberate and correct, rerun it prefixed with {OVERRIDE}"
             if what == "command" else
             f"\nIf this is deliberate, set {OVERRIDE} in the environment, or narrow "
