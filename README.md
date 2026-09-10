@@ -426,9 +426,14 @@ not exhaustive.
 
 ```bash
 python3 tests/run.py                   # whole suite; or run one file, e.g. tests/test_matchers.py
+git config core.hooksPath .githooks    # opt in: run tests before every push
 python3 scripts/port_gitleaks_rules.py # refresh the secret rules from upstream
 scripts/release.sh 0.2.0               # bump, tag, push; CI publishes
 ```
+
+CI (`.github/workflows/test.yml`) runs the suite on every PR and push to
+`master` on Python 3.8 and 3.12; make it a required check in branch protection to
+block merges on failure.
 
 `tests/` is framework-free — `assert`-based `run_tests()` per file, shared corpus
 in `tests/fixtures.py`. `test_scan` is the rule engine, `test_matchers` the

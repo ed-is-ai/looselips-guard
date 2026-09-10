@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Run the test suite before every push. Opt in with:
+#   git config core.hooksPath .githooks
+set -e
+exec python3 tests/run.py
