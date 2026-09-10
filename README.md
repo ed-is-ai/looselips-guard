@@ -21,14 +21,20 @@ internet, git, your email. And nothing there stops an agent firing your personal
 data when it shouldn't, because the model doesn't know any
 better.
 
-Existing agent tools focus on stopping your secrets reaching the model. **looselips-guard stops the
-agent publishing your data to the world.** It blocks a command *before it runs*
-when what's leaving the machine has something in it that shouldn't go: a banned
-string from your denylist, a credential, or a suspiciously big file that's
-probably a database dump. They all run in the one hook, in a single pass over
-the payload, before it executes — the credential check is
-[gitleaks](https://github.com/gitleaks/gitleaks)' 221 secret-detection rules
-ported to run in-process, not a separate scanner you install or invoke.
+Existing agent tools focus on stopping your secrets reaching the model.
+**looselips-guard catches an agent *accidentally* putting your data where the
+world can see it.** It blocks a command *before it runs* when the outbound
+payload contains, in plaintext, a banned string from your denylist, a
+credential, or a suspiciously big file that's probably a database dump. The
+credential check is [gitleaks](https://github.com/gitleaks/gitleaks)' 221
+secret-detection rules ported to run in-process, not a separate scanner you
+install or invoke.
+
+It is a **plaintext denylist**, not a containment boundary. It will not stop an
+agent that base64s the value first, splits it across two calls, or otherwise
+means to get around it — see [What it does not stop](#what-it-does-not-stop). In
+the incident that motivated this, every leak was accidental and in the clear; a
+denylist covers that case well and nothing fancier was needed.
 
 It watches `gh`, `git`, `curl`/`wget`, `scp`/`rsync`, `nc` and MCP tool calls
 (full list [below](#what-it-intercepts)) — but the two that nothing else covers
@@ -243,6 +249,10 @@ init` does it for you.
 | DeepSeek Harness | Claude Code / Codex hook bridge | works via bridge — unverified |
 | opencode | `tool.execute.before`, throw | designed |
 
+**works today** means the hook fires and `exit 2` blocks on that host — the
+integration is wired and tested. It is not a claim about detection strength; see
+[What it does not stop](#what-it-does-not-stop).
+
 Two things worth knowing before you rely on this:
 
 - **Every command-hook host is fail-open on timeout** except Hermes and Cursor,
@@ -379,28 +389,57 @@ That works because a pre-tool hook can rewrite tool *input*. Its hard limit:
 tool (`Read`, `view`) cannot be sanitised — it warns and allows. Inbound
 protection is best-effort by construction, and says so.
 
-## Not covered
+## What it does not stop
 
-- Anything typed into github.com in a browser. A pre-tool hook only sees
+**Any transformation of the value.** Detection is a substring / regex match on
+the plaintext payload. base64, gzip, hex, `gpg`, `rot13`, or splitting
+`Acct-99001122` across two tool calls — none of that matches `Acct-99001122`, and
+the guard allows it. This is inherent to a denylist and is the honest ceiling of
+the approach: it catches *accidental plaintext*, not a determined exfiltrator.
+For that you need network egress control or a sandbox, not a pre-tool hook.
+
+**Parsing divergence.** For every intercepted command the guard re-implements
+enough argument parsing to find the payload — `--body-file` resolution, `curl`
+`@file`, `git add --dry-run`, the unpushed-diff range, walking MCP args. Anywhere
+its model of what-will-be-sent differs from what the tool actually sends is a
+silent bypass: exotic quoting, an encoding it doesn't decode, a redirection or
+heredoc, an argument order the parser didn't expect. `curl --data @-` and
+`--body-file -` (reads from stdin, which the hook can't see) are blocked
+outright for this reason; the rest is best-effort. The
+[test suite](tests/) includes an adversarial group, but it is
+not exhaustive.
+
+**Out of scope by design:**
+
+- Anything typed into github.com in a browser — a pre-tool hook only sees
   agent-initiated calls.
 - Rewriting outbound payloads. Silently altering an issue body the agent wrote
   is worse than refusing it, so outbound blocks and never edits.
-- MCP calls on Copilot when `mcp_servers` isn't set — there's no tool-name prefix
-  to detect them automatically, so you have to name the servers.
+- A `git commit` message from `$EDITOR` (no `-m`/`-F`) — the content is already
+  guarded at `git add`, but the message text isn't seen.
+- MCP calls on Copilot when `mcp_servers` isn't set — no tool-name prefix to key
+  on, so you name the servers.
 - Whatever tool comes next. The matcher is a short list of `argv[0]` cases plus
   `nc` anywhere in a pipeline — built to extend, not exhaustive.
 
 ## Development
 
 ```bash
-python3 test_looselips_guard.py              # synthetic fixtures, no real data
+python3 tests/run.py                   # whole suite; or run one file, e.g. tests/test_matchers.py
+git config core.hooksPath .githooks    # opt in: run tests before every push
 python3 scripts/port_gitleaks_rules.py # refresh the secret rules from upstream
 scripts/release.sh 0.2.0               # bump, tag, push; CI publishes
 ```
 
-Fixtures are synthetic by policy: a ticker-like token beside a currency amount,
-a balance line, a holdings table, an oversized SQLite backup. The real incident
-data that shaped them is never published.
+CI (`.github/workflows/test.yml`) runs the suite on every PR and push to
+`master` on Python 3.8 and 3.12; make it a required check in branch protection to
+block merges on failure.
+
+`tests/` is framework-free — `assert`-based `run_tests()` per file, shared corpus
+in `tests/fixtures.py`; [`tests/README.md`](tests/README.md) explains the layout
+and the two adversarial groups. Fixtures are synthetic by policy: a ticker-like
+token beside a currency amount, a balance line, a holdings table, an oversized
+SQLite backup. The real incident data that shaped them is never published.
 
 ## Credits
 

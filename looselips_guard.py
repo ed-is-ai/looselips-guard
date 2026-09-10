@@ -93,7 +93,10 @@ def secret_findings(text):
         keywords = rule["keywords"]
         if keywords and not any(k in low for k in keywords):
             continue
-        m = re.search(rule["regex"], text)
+        try:
+            m = re.search(rule["regex"], text)
+        except re.error:
+            continue  # gitleaks (Go RE2) rule Python's re won't compile; skip it
         if not m:
             continue
         group = rule["secret_group"]
@@ -389,10 +392,12 @@ def check(command, cwd, config):
         texts, unreadable = curl_payloads(argv, cwd)
         for t in texts:
             hits(t, "request")
+        hits(" ".join(argv), "command")   # also scan the raw line, in case parsing missed a flag
         for u in unreadable:
             findings.append(f"request body not readable, cannot scan: {u}")
     elif argv and argv[0] in ("scp", "rsync"):
         limit = config.get("max_added_file_bytes", DEFAULT_MAX_BYTES)
+        hits(" ".join(argv), "command")
         for src in scp_rsync_sources(argv):
             p = src if os.path.isabs(src) else os.path.join(cwd, src)
             if os.path.isdir(p):
