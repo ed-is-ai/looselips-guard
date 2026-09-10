@@ -17,6 +17,12 @@ s = open(p).read()
 s, n = re.subn(r'^version = ".*"$', f'version = "{v}"', s, count=1, flags=re.M)
 assert n == 1, "version line not found in pyproject.toml"
 open(p, "w").write(s)
+
+import json
+p = ".claude-plugin/plugin.json"
+d = json.load(open(p))
+d["version"] = v
+open(p, "w").write(json.dumps(d, indent=2) + "\n")
 PY
 
 ( cd packages/looselips-guard && npm version "$version" --no-git-tag-version --allow-same-version >/dev/null )
