@@ -36,6 +36,7 @@ jobs:
   npm:
     needs: test
     runs-on: ubuntu-latest
+    environment: main         # must match the npm trusted-publisher config
     permissions:
       id-token: write          # OIDC trusted publishing + provenance
     steps:
