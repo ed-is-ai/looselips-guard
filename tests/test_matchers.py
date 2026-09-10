@@ -20,6 +20,8 @@ def run_tests():
 
         # git: large file and content
         subprocess.run(["git", "init", "-q"], cwd=tmp, check=True)
+        for kv in ("user.email t@t.test", "user.name t", "commit.gpgsign false"):
+            subprocess.run(["git", "config", *kv.split()], cwd=tmp, check=True)
         open(os.path.join(tmp, "big.sqlite"), "wb").write(b"\0" * 600_000)
         open(os.path.join(tmp, "note.md"), "w").write(LEAKS[1])
         open(os.path.join(tmp, "fine.md"), "w").write(CLEAN[1])
