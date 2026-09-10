@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/status-alpha-d29922" alt="Alpha">
 </p>
 
-<p align="center"><em>Loose lips sink shops.</em></p>
+<p align="center"><em>Loose lips sink shops.</em>&nbsp;❤️</p>
 
 You want to run agents unattended. Sure, you can sandbox them and run a local
 model — but to do anything useful you have to let them access the outside world: the
@@ -105,11 +105,20 @@ Two hosts need a hand because they have no shell-command hook:
 - **OpenClaw / OpenClaw 2** — in-process TS plugin.
   `cp integrations/openclaw/looselips-guard.plugin.ts ~/.openclaw/policies/`, then
   add `"~/.openclaw/policies/looselips-guard.plugin.ts"` to `plugins.load.paths`
-  in `~/.openclaw/openclaw.json`.
-- **DeepSeek Harness** — enable its Claude Code / Codex `hooks.json` bridge and
-  point it at [`hooks/codex-hooks.json`](hooks/codex-hooks.json). Unverified.
+  in `~/.openclaw/openclaw.json`. The plugin runs `looselips-guard` synchronously
+  and returns `{ block }` on exit 2 or on a spawn error, so a *crash* fails
+  closed; OpenClaw's `before_tool_call` sets no default handler timeout and its
+  policy for a hung handler is undocumented, so a true *hang* would stall the
+  turn rather than fail either way.
+- **DeepSeek Harness** — enable its Claude Code / Codex `hooks.json` bridge
+  ([`dsh-hooks-claude-code`](https://github.com/deepseek-ai/deepseek-harness)) and
+  point it at [`hooks/codex-hooks.json`](hooks/codex-hooks.json). Its pre-execute
+  waterfall honours exit 2; any other failure is "logged as non-blocking, action
+  proceeds" — fail-open, with no documented timeout. Unverified end to end.
 
-Every host is fail-open on a slow hook except Cursor and Hermes.
+Every host is fail-open on a slow hook except Cursor and Hermes. Claude Code and
+Codex give it a 600 s window (see [How it works](#how-it-works)); OpenClaw,
+DeepSeek, Copilot and opencode don't publish theirs.
 
 ---
 
@@ -130,12 +139,12 @@ Four steps in one pass, and the host-specific part is almost nothing.
   │  host adapter     │   later, block with `exit 2` — that's the whole of it
   └─────────┬─────────┘
             ▼
-  ┌───────────────────┐   is this a write to the outside world?
-  │  matcher          │   gh issue/pr, gh api mutation, git add, git commit
+  ┌───────────────────┐   is this a write to the outside world?  gh issue/pr,
+  │  matcher          │   gh api mutation, git add/commit/push, curl/wget, MCP writes
   └─────────┬─────────┘
             ▼
-  ┌───────────────────┐   --body-file is resolved and read from disk;
-  │  payload          │   git add is resolved via --dry-run
+  ┌───────────────────┐   --body-file and curl @file are read from disk; git add
+  │  payload          │   via --dry-run, git push via rev-list; MCP args walked
   └─────────┬─────────┘
             ▼
   ┌───────────────────┐   denylist + your regex patterns · 221 secret
@@ -166,12 +175,13 @@ no shell-command hook at all — and gets a small in-process plugin.
 | 221 rules ported from gitleaks | API keys, tokens, private keys | Credentials *do* have recognisable shapes |
 | A size limit on staged files | The 1.1 MB SQLite backup | One rule closes the entire git-object route |
 
-**Speed is a correctness requirement, not a nicety.** Most hosts are fail-open on
-timeout — Claude Code's own docs say not to count on a stalled hook as a gate,
-and only Cursor and Hermes can be told to fail closed. A slow hook doesn't annoy
-you, it silently stops guarding. So: no dependencies, nothing imported that
-isn't needed (argparse only when a subcommand is given, never on the hook path),
-and a keyword prefilter in front of the secret rules.
+**Warning** Most hosts are fail-open on
+timeout — Claude Code's own docs say not to count on a stalled hook as a gate
+([hooks reference](https://code.claude.com/docs/en/hooks)) — and only Cursor and
+Hermes can be told to fail closed. A slow hook doesn't annoy you, it silently
+stops guarding. So: no dependencies, nothing imported that isn't needed (argparse
+only when a subcommand is given, never on the hook path), and a keyword prefilter
+in front of the secret rules.
 
 | Operation | Measured |
 |---|---|
@@ -180,6 +190,18 @@ and a keyword prefilter in front of the secret rules.
 | Secret prefilter, clean payload | 0.25 ms — no regex compiled at all |
 | Secret rules when something matches | ~1 ms |
 | Compiling all 221 rules, if we didn't prefilter | 19.8 ms |
+
+**In practice the timeout race isnt a thing** Claude Code's default `PreToolUse`
+timeout is **600 seconds** ([hooks reference](https://code.claude.com/docs/en/hooks));
+Codex's is the same ([Codex hooks](https://developers.openai.com/codex/hooks)). Our
+21 ms hook against a ten-minute ceiling doesn't fail open by accident — it would
+have to *hang*: block forever on unreadable input, or catch a pathological regex.
+And the code dealw with those specifically — no dependencies to hang in, lazy imports,
+`--body-file -` is blocked rather than read, and a bad `patterns` entry is
+skipped, not run. So we have warned you, but it's not likely to be a thing on your agent.
+
+Having said that, a fail-closed host (Cursor, Hermes) guarantees the hook blocks. 
+So well done you, if you have already thought about this. You are a hero
 
 ---
 
@@ -205,7 +227,10 @@ init` does it for you.
 Two things worth knowing before you rely on this:
 
 - **Every command-hook host is fail-open on timeout** except Hermes and Cursor,
-  which honour `fail_closed` / `failClosed` on the pre-execution hook.
+  which honour `fail_closed` / `failClosed` on the pre-execution hook. The window
+  is wide though — Claude Code and Codex default to a 600 s hook timeout, so a
+  21 ms hook only fails open if it truly hangs (see
+  [How it works](#how-it-works), and the per-host notes above).
 - **opencode does not intercept subagent tool calls**
   ([open issue](https://github.com/anomalyco/opencode/issues/5894)), so a
   delegated `gh` call bypasses the guard there. Not ours to fix, but yours to
@@ -249,6 +274,10 @@ items found across 258 issues and 306 PRs, with zero false positives.
   Matching is case-sensitive with word boundaries, which removes most collisions
   before this list is needed. `allow` does not apply to `patterns`.
 - `max_added_file_bytes` — files larger than this cannot be staged (default 500 KB).
+- `mcp_tools` — regex of MCP tool names whose arguments get scanned. Default is a
+  set of write verbs (`create|post|send|comment|publish|upload|write|update|…`)
+  so reading your own data through an MCP server doesn't trip the denylist. Set
+  `".*"` to scan every MCP call, `""` or `false` to scan none.
 
 Secrets are handled separately, by 221 rules ported from gitleaks, so there is
 **nothing to install**. Regenerate them with `scripts/port_gitleaks_rules.py`.
@@ -263,6 +292,12 @@ Secrets are handled separately, by 221 rules ported from gitleaks, so there is
 - `gh api` with a mutation, `POST`, or any `-f`/`-F` field
 - `git add` — every path it would actually stage, by size and by content
 - `git commit -m`
+- `git push` — the diff of commits not yet on any remote (capped at 2 MB)
+- `curl` / `wget` — request body (`-d`/`--data*`/`-F`/`-T`/`--json`/`--post-data`,
+  inline or `@file`), and the URL itself
+- **MCP tool calls** whose name matches a write verb (`create_issue`,
+  `post_message`, …) — every string in the arguments. Tune with `mcp_tools`
+  (see [Config](#config)); reads like `query` or `list_*` are skipped by default
 
 ## Override
 
@@ -273,6 +308,9 @@ exactly what matched and where, and you re-run deliberately:
 ```bash
 LOOSELIPS_GUARD_OK=1 gh issue create --title "…" --body-file issue.md
 ```
+
+For an MCP call there's no command to prefix — export `LOOSELIPS_GUARD_OK=1` for
+the session, or narrow `mcp_tools`.
 
 Every leak in the motivating incident was accidental. Making the deliberate case
 cheap and the accidental case impossible is the whole design goal.
@@ -302,7 +340,13 @@ protection is best-effort by construction, and says so.
   agent-initiated calls.
 - Rewriting outbound payloads. Silently altering an issue body the agent wrote
   is worse than refusing it, so outbound blocks and never edits.
-- `curl`/`wget`, MCP calls, `git push`. The matcher is built to extend.
+- MCP calls on hosts where the hook isn't wired for them — `init` does Claude,
+  Codex and Cursor (`beforeMCPExecution`); Copilot, Hermes and OpenClaw only get
+  the shell path for now.
+- An MCP call can't be re-run with an inline `LOOSELIPS_GUARD_OK=1` prefix the
+  way a shell command can — set it in the environment instead, or narrow
+  `mcp_tools`.
+- Other outbound tools — `scp`, `rsync`, a raw `nc`. The matcher is built to extend.
 
 ## Development
 
