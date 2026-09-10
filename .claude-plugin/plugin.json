@@ -1,6 +1,6 @@
 {
   "name": "looselips-guard",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Stops your coding agent publishing your data to the world. Blocks gh issue/pr bodies, gh api mutations and git add/commit before they run when the payload contains your own data or a recognised credential.",
   "homepage": "https://github.com/ed-is-ai/looselips-guard",
   "license": "MIT",
