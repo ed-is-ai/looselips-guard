@@ -1,6 +1,6 @@
 {
   "name": "looselips-guard",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Stops your coding agent publishing your data to the world - a PreToolUse egress guard",
   "bin": {
     "looselips-guard": "cli.js"
