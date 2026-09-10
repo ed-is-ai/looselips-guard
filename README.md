@@ -77,8 +77,14 @@ looselips-guard add ZQXF VNTR Acct-99001122
 looselips-guard add "ZQXF,VNTR,ACME Corp,Acct-99001122"   # or one comma-separated list
 looselips-guard add --like Acct-99001122                  # block the format: \bAcct-\d{8}\b
 looselips-guard presets                                   # optional starter regex sets (internal, cloud, k8s)
+looselips-guard routes                                    # list egress routes; `routes disable git-push` to stop checking one
 looselips-guard check     # confirm it's guarding you
 ```
+
+Every route is checked by default. `looselips-guard routes disable nc curl`
+turns individual ones off (persisted to `.looselips-guard.json`);
+`routes enable` turns them back on. Routes: `gh`, `git-add`, `git-commit`,
+`git-push`, `curl`, `scp`, `nc`, `mcp`.
 
 `init` bakes the hook command in the form you invoked it — the `looselips-guard`
 bin if you npm-installed, the script's own path if you cloned — so it keeps
@@ -91,7 +97,8 @@ any credential the ported [gitleaks](https://github.com/gitleaks/gitleaks) rules
 recognise. `add` extends it with your own strings — tickers, account ids,
 balances — that generic PII rules can't spot. For data that changes often, point
 a `source` at it instead (see [Config](#config)) and it is re-read on every scan.
-`.looselips-guard.json` and `.looselips-guard.list` are never committed;
+`.looselips-guard.json`, `.looselips-guard.list` and `.looselips-guard.snooze`
+are never committed;
 [`.looselips-blocklist-example.json`](.looselips-blocklist-example.json) is the
 template `init` copies from.
 
@@ -303,6 +310,10 @@ items found across 258 issues and 306 PRs, with zero false positives.
   before this list is needed. `allow` does not apply to `patterns`.
 - `max_added_file_bytes` — files larger than this are blocked from `git add` and
   from `scp`/`rsync` uploads without being read (default 500 KB).
+- `routes` — a `{name: bool}` map of which egress routes `check()` enforces.
+  Anything not listed is checked; set one `false` to skip it. Names: `gh`,
+  `git-add`, `git-commit`, `git-push`, `curl`, `scp`, `nc`, `mcp`. Manage with
+  `looselips-guard routes [enable|disable] <name>…` rather than by hand.
 - `mcp_tools` — regex of MCP tool names whose arguments get scanned. Default is a
   set of write verbs (`create|post|send|comment|publish|upload|write|update|…`)
   so reading your own data through an MCP server doesn't trip the denylist. Set
@@ -354,18 +365,28 @@ Secrets are handled separately, by 221 rules ported from gitleaks, so there is
   `post_message`, …) — every string in the arguments. Tune with `mcp_tools`
   (see [Config](#config)); reads like `query` or `list_*` are skipped by default
 
+Each of these is a *route* you can turn off with `looselips-guard routes disable
+<name>` — see [Getting started](#getting-started).
+
 ## Override
 
 Blocking hard gets a tool bypassed, and then it protects nothing. A real bug
 report may need to name the ticker that exposed the bug. So the hook prints
-exactly what matched and where, and you re-run deliberately:
+exactly what matched and where, and there are two deliberate ways through:
 
 ```bash
-LOOSELIPS_GUARD_OK=1 gh issue create --title "…" --body-file issue.md
+LOOSELIPS_GUARD_OK=1 gh issue create --title "…" --body-file issue.md  # this one call
+looselips-guard snooze          # let the agent through here for 5 min (snooze 15 for longer)
+looselips-guard snooze --clear  # …or end the window now
 ```
 
-For an MCP call there's no command to prefix — export `LOOSELIPS_GUARD_OK=1` for
-the session, or narrow `mcp_tools`.
+`snooze` writes `.looselips-guard.snooze` (an epoch expiry) in the directory and
+the hook allows matches while it's live. It **fails shut**: a missing, expired or
+unreadable file means blocked, so a snooze only ever loosens the guard for the
+window you asked for.
+
+For an MCP call there's no command to prefix — use `snooze`, export
+`LOOSELIPS_GUARD_OK=1` for the session, or narrow `mcp_tools`.
 
 Every leak in the motivating incident was accidental. Making the deliberate case
 cheap and the accidental case impossible is the whole design goal.
@@ -431,6 +452,7 @@ python3 scripts/port_gitleaks_rules.py # refresh the secret rules from upstream
 scripts/release.sh 0.2.0               # bump, tag, push; CI publishes
 ```
 
+## Test approach
 CI (`.github/workflows/test.yml`) runs the suite on every PR and push to
 `master` on Python 3.8 and 3.12; make it a required check in branch protection to
 block merges on failure.

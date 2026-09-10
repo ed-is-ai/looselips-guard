@@ -16,6 +16,7 @@ import shlex
 import sqlite3
 import subprocess
 import sys
+import time
 
 CONFIG_NAME = ".looselips-guard.json"
 OVERRIDE = "LOOSELIPS_GUARD_OK=1"
@@ -354,6 +355,27 @@ def check_mcp(tool, tool_input, cwd, config):
     return s.findings
 
 
+ROUTES = ("gh", "git-add", "git-commit", "git-push", "curl", "scp", "nc", "mcp")
+
+SNOOZE_FILE = ".looselips-guard.snooze"
+SNOOZE_DEFAULT_MIN = 5
+
+
+def snooze_active(cwd):
+    """True while a `looselips-guard snooze` window is open (file holds an epoch
+    expiry; a stale file just reads as inactive)."""
+    try:
+        with open(os.path.join(cwd, SNOOZE_FILE)) as f:
+            return time.time() < float(f.read().strip())
+    except (OSError, ValueError):
+        return False
+
+
+def route_on(config, name):
+    """A route is checked unless config["routes"][name] is explicitly false."""
+    return config.get("routes", {}).get(name, True)
+
+
 def check(command, cwd, config):
     """Return a list of human-readable findings."""
     if OVERRIDE in command:
@@ -368,6 +390,8 @@ def check(command, cwd, config):
     findings = _s.findings
     hits = _s.hits
 
+    if is_gh_write(argv) and not route_on(config, "gh"):
+        return findings
     if is_gh_write(argv) and argv[1] == "api":
         hits(" ".join(argv), "command")
     elif is_gh_write(argv):
@@ -377,25 +401,25 @@ def check(command, cwd, config):
         hits(" ".join(argv), "command")
         for u in unreadable:
             findings.append(f"payload not readable, cannot scan: {u}")
-    elif argv[:2] == ["git", "add"]:
+    elif argv[:2] == ["git", "add"] and route_on(config, "git-add"):
         limit = config.get("max_added_file_bytes", DEFAULT_MAX_BYTES)
         for rel in git_added_files(argv, cwd):
             _scan_file(os.path.join(cwd, rel), rel, limit, hits, findings)
-    elif argv[:2] == ["git", "commit"]:
+    elif argv[:2] == ["git", "commit"] and route_on(config, "git-commit"):
         for text in payloads(argv[2:], cwd)[0]:
             hits(text, "commit message")
-    elif argv[:2] == ["git", "push"]:
+    elif argv[:2] == ["git", "push"] and route_on(config, "git-push"):
         diff = git_push_diff(cwd)
         if diff:
             hits(diff, "git push (unpushed diff)")
-    elif argv and argv[0] in ("curl", "wget"):
+    elif argv and argv[0] in ("curl", "wget") and route_on(config, "curl"):
         texts, unreadable = curl_payloads(argv, cwd)
         for t in texts:
             hits(t, "request")
         hits(" ".join(argv), "command")   # also scan the raw line, in case parsing missed a flag
         for u in unreadable:
             findings.append(f"request body not readable, cannot scan: {u}")
-    elif argv and argv[0] in ("scp", "rsync"):
+    elif argv and argv[0] in ("scp", "rsync") and route_on(config, "scp"):
         limit = config.get("max_added_file_bytes", DEFAULT_MAX_BYTES)
         hits(" ".join(argv), "command")
         for src in scp_rsync_sources(argv):
@@ -407,7 +431,8 @@ def check(command, cwd, config):
                         _scan_file(fp, os.path.relpath(fp, cwd), limit, hits, findings)
             else:
                 _scan_file(p, src, limit, hits, findings)
-    elif any(a in ("nc", "ncat", "netcat") for a in argv) and re.search(r"\b\d{2,5}\b", command):
+    elif (any(a in ("nc", "ncat", "netcat") for a in argv)
+          and re.search(r"\b\d{2,5}\b", command) and route_on(config, "nc")):
         hits(command, "netcat command")
         for f in re.findall(r"(?:\bcat|<)\s+([^\s|<>&;]+)", command):
             p = f if os.path.isabs(f) else os.path.join(cwd, f)
@@ -650,6 +675,53 @@ def cmd_add(values, as_regex=False, like=False, preset=None):
     return 0
 
 
+def cmd_routes(action, names):
+    """Show or toggle which egress routes check() enforces."""
+    cfg = os.path.join(os.getcwd(), CONFIG_NAME)
+    data = json.load(open(cfg)) if os.path.exists(cfg) else dict(CONFIG_TEMPLATE)
+    routes = dict(data.get("routes", {}))
+    if action:
+        if not names:
+            print(f"usage: looselips-guard routes {action} ROUTE...", file=sys.stderr)
+            return 1
+        bad = [n for n in names if n not in ROUTES]
+        if bad:
+            print(f"unknown route(s): {', '.join(bad)}\nknown: {', '.join(ROUTES)}",
+                  file=sys.stderr)
+            return 1
+        for n in names:
+            routes[n] = (action == "enable")
+        data["routes"] = routes
+        with open(cfg, "w") as f:
+            json.dump(data, f, indent=2)
+    for n in ROUTES:
+        print(f"  {'on ' if routes.get(n, True) else 'off'}  {n}")
+    if not os.path.exists(cfg):
+        print(f"warning: no {CONFIG_NAME} here yet - run `looselips-guard init`",
+              file=sys.stderr)
+    return 0
+
+
+def cmd_snooze(minutes, clear):
+    """Open (or clear) a time-boxed bypass window in the current directory."""
+    path = os.path.join(os.getcwd(), SNOOZE_FILE)
+    if clear:
+        try:
+            os.remove(path)
+            print("snooze cleared")
+        except OSError:
+            print("no snooze active")
+        return 0
+    mins = minutes or SNOOZE_DEFAULT_MIN
+    until = time.time() + mins * 60
+    with open(path, "w") as f:
+        f.write(str(until))
+    print(f"snooze on: looselips-guard allows matches here until "
+          f"{time.strftime('%H:%M:%S', time.localtime(until))} ({mins} min). "
+          f"Clear early with `looselips-guard snooze --clear`.")
+    return 0
+
+
 def cmd_check():
     cwd = os.getcwd()
     probe = 'gh issue create --title t --body "deploy fails with AKIAIOSFODNN7EXAMPLE"'
@@ -688,6 +760,17 @@ def _parser():
     g.add_argument("--preset", choices=list(PRESETS),
                    help="add a small vetted starter set of format patterns")
 
+    r = sub.add_parser("routes", help="show or toggle which egress routes are checked")
+    r.add_argument("action", nargs="?", choices=["enable", "disable"],
+                   help="omit to just list current state")
+    r.add_argument("route", nargs="*", help="route name(s): " + ", ".join(ROUTES))
+
+    s = sub.add_parser("snooze",
+                       help=f"allow matches in this dir for {SNOOZE_DEFAULT_MIN} min")
+    s.add_argument("minutes", nargs="?", type=int,
+                   help=f"window length (default {SNOOZE_DEFAULT_MIN})")
+    s.add_argument("--clear", action="store_true", help="end the window now")
+
     sub.add_parser("check", help="self-test the install")
     sub.add_parser("presets", help="show the built-in regex starter sets")
     sub.add_parser("redact", help="(not implemented yet)")
@@ -701,6 +784,10 @@ def main():
             return cmd_init(args.host, args.use_home)
         if args.cmd == "add":
             return cmd_add(args.value, args.regex, args.like, args.preset)
+        if args.cmd == "routes":
+            return cmd_routes(args.action, args.route)
+        if args.cmd == "snooze":
+            return cmd_snooze(args.minutes, args.clear)
         if args.cmd == "check":
             return cmd_check()
         if args.cmd == "presets":
@@ -732,17 +819,23 @@ def main():
                      for s in config.get("mcp_servers", [])))
     if command:
         findings = check(command, cwd, config)
-    elif is_mcp:
+    elif is_mcp and route_on(config, "mcp"):
         findings = check_mcp(tool, tin, cwd, config)
     else:
         return 0
     if not findings:
+        return 0
+    if snooze_active(cwd):
+        print("looselips-guard: snooze active, allowing despite matches:",
+              *[f"  - {f}" for f in findings], sep="\n", file=sys.stderr)
         return 0
     what = "call" if is_mcp else "command"
     tail = (f"\nIf this is deliberate and correct, rerun it prefixed with {OVERRIDE}"
             if what == "command" else
             f"\nIf this is deliberate, set {OVERRIDE} in the environment, or narrow "
             '"mcp_tools" in .looselips-guard.json.')
+    tail += (f"\nTo let the agent through for the next {SNOOZE_DEFAULT_MIN} min, run: "
+             "looselips-guard snooze")
     print(f"looselips-guard blocked this {what} - sensitive data would leave the machine:",
           *[f"  - {f}" for f in findings], tail, sep="\n", file=sys.stderr)
     return 2

