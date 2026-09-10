@@ -93,7 +93,10 @@ def secret_findings(text):
         keywords = rule["keywords"]
         if keywords and not any(k in low for k in keywords):
             continue
-        m = re.search(rule["regex"], text)
+        try:
+            m = re.search(rule["regex"], text)
+        except re.error:
+            continue  # gitleaks (Go RE2) rule Python's re won't compile; skip it
         if not m:
             continue
         group = rule["secret_group"]
